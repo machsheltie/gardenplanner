@@ -102,3 +102,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Row occupancy/rotation warnings added using per-row previous-family history selectors
 - [x] Season/year row-history presets added (save/load/delete presets + previous-year quick load)
 - [x] Season archive view added (yield notes + pest/disease pressure + archived row-history snapshot for rotation planning)
+- [x] Crop-level season outcomes added to archives (per-crop/variety yield + pest/disease incidents) and used to adjust next-season quantity recommendations
