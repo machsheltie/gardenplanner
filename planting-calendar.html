@@ -158,12 +158,15 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-rowlane:last-child{margin-bottom:0}
 .pt-rowlane-label{font-size:.72em;color:#4f5f4f;font-weight:600}
 .pt-rowlane-label .trellis{color:#7c5200}
+.pt-rowlane-prev{display:block;margin-top:2px}
+.pt-rowlane-prev select{width:100%;font-size:.68em;border:1px solid #d4ddd4;border-radius:6px;padding:1px 4px;background:#fff;color:#465646}
 .pt-rowlane-track{position:relative;height:20px;background:#eef4eb;border:1px solid #dfe8dc;border-radius:999px;overflow:hidden}
 .pt-rowlane-track.trellis{box-shadow:inset 0 0 0 2px #f59e0b33}
 .pt-rowlane-track.drop-target{outline:2px dashed #4a8c3f;outline-offset:1px;background:#e8f5e0}
 .pt-rowlane-seg{position:absolute;top:1px;bottom:1px;border-radius:999px;border:1px solid rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;font-size:.62em;font-weight:700;color:#173117;overflow:hidden;white-space:nowrap;padding:0 4px}
 .pt-rowlane-seg.tight{box-shadow:inset 0 0 0 2px #ef4444}
 .pt-rowlane-overflow{font-size:.68em;color:#92400e;margin-left:60px;margin-top:-2px;margin-bottom:4px}
+.pt-rowlane-warning{font-size:.68em;color:#92400e;margin-left:60px;margin-top:-2px;margin-bottom:4px}
 .vrtags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .vrtag{display:inline-block;background:#eef6ea;color:#2d5a27;border-radius:999px;padding:2px 7px;font-size:.7em;font-weight:600}
 .vrtag.recipe{background:#fff3cd;color:#7c5200}
@@ -454,6 +457,20 @@ const STRUCT_CACHE=new Map();
 const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
+const ROTATION_FAMILY_LABELS={
+  none:'None / unknown',
+  brassica:'Brassica',
+  allium:'Allium',
+  solanaceae:'Nightshade (tomato/pepper/etc.)',
+  cucurbit:'Cucurbit (cucumber/squash)',
+  legume:'Legume (peas/beans)',
+  root:'Root crops',
+  leafy:'Leafy greens',
+  corn:'Corn',
+  herb:'Herb',
+  berry:'Berry',
+  perennial:'Perennial'
+};
 const CATEGORY_SCHEMA_DEFAULTS={
   'Peas':{spacing:{inRowIn:2,betweenRowsIn:18,squareFootQty:8},yield:{unit:'lb_pods',perPlantRange:[0.2,0.5]},site:{sun:'full',water:'moderate',phRange:[6.0,7.5],drainage:'well_drained'},householdPlanning:{freshRange:[12,24],preserveRange:[24,40],successFactor:.8},preservation:{bestUses:['freeze'],avoid:['canning quality loss']},ipm:{commonPests:['aphids','pea weevil'],commonDiseases:['powdery mildew','fusarium wilt'],prevention:['trellis airflow','early sowing','crop rotation'],scoutFor:['leaf curling','powdery film','stunted vines']}},
   'Beans':{spacing:{inRowIn:4,betweenRowsIn:18,squareFootQty:4},yield:{unit:'lb_pods',perPlantRange:[0.3,0.8]},site:{sun:'full',water:'moderate',phRange:[6.0,7.0],drainage:'well_drained'},householdPlanning:{freshRange:[10,20],preserveRange:[30,60],successFactor:.82},preservation:{bestUses:['freeze','pressure_can']},ipm:{commonPests:['bean beetles','aphids','stink bugs'],commonDiseases:['bacterial blight','rust'],prevention:['avoid working wet foliage','succession sowing','crop rotation'],scoutFor:['shot holes','leaf spots','bronzing pods']}},
@@ -611,6 +628,20 @@ function parseFloatSafe(v,min=0,max=9999,def=min){
   if(!Number.isFinite(n))return def;
   return Math.max(min,Math.min(max,n));
 }
+function computeRowCountForShape(widthFt,rowSpacingIn){
+  const w=Math.max(0.5,Number(widthFt)||1), rs=Math.max(6,Number(rowSpacingIn)||12);
+  return Math.max(1,Math.floor((w*12)/rs));
+}
+function normalizeBedRowHistory(history,rowCount){
+  const arr=Array.isArray(history)?history:[];
+  const out=[];
+  for(let i=0;i<rowCount;i++){
+    const raw=arr[i];
+    const fam=typeof raw==='string'?raw:raw?.family;
+    out.push(Object.hasOwn(ROTATION_FAMILY_LABELS,String(fam||''))?String(fam):'none');
+  }
+  return out;
+}
 function normalizeWeatherState(input){
   const w=input&&typeof input==='object'?input:{};
   const humidity=['low','medium','high'].includes(w.humidityRisk)?w.humidityRisk:'medium';
@@ -635,7 +666,10 @@ function normalizeBeds(beds){
     rowSpacingIn:round1(parseFloatSafe(b?.rowSpacingIn,6,36,12)),
     trellisSide:['none','north','south','east','west'].includes(b?.trellisSide)?b.trellisSide:'none',
     trellisBandFt:round1(parseFloatSafe(b?.trellisBandFt,0.5,4,1))
-  })).filter(b=>b.lengthFt>0&&b.widthFt>0);
+  })).filter(b=>b.lengthFt>0&&b.widthFt>0).map(b=>{
+    const rowCount=computeRowCountForShape(b.widthFt,b.rowSpacingIn);
+    return {...b,rowHistory:normalizeBedRowHistory(b.rowHistory,rowCount)};
+  });
   return out.length?out:DEFAULT_BEDS.map(b=>({...b}));
 }
 function normalizeBedPlacementPrefs(prefs,beds=getActiveBeds()){
@@ -667,6 +701,27 @@ function removePlacementPref(cropName){
 function bedSqFt(b){return round1((Number(b?.lengthFt)||0)*(Number(b?.widthFt)||0))}
 function getActiveBeds(){return normalizeBeds(APP_STATE.beds)}
 function totalBedSqFt(beds=getActiveBeds()){return round1(beds.reduce((s,b)=>s+bedSqFt(b),0))}
+function getBedById(bedId){return (APP_STATE.beds||[]).find(b=>b.id===bedId)||null}
+function setBedRowHistoryFamily(bedId,rowIndex,family){
+  const fam=Object.hasOwn(ROTATION_FAMILY_LABELS,String(family||''))?String(family):'none';
+  APP_STATE.beds=normalizeBeds((APP_STATE.beds||[]).map(b=>{
+    if(b.id!==bedId) return b;
+    const settings=getBedRowSettings(b);
+    const rowHistory=normalizeBedRowHistory(b.rowHistory,settings.rowCount);
+    rowHistory[Math.max(0,Math.min(settings.rowCount-1,Number(rowIndex)||0))]=fam;
+    return {...b,rowHistory};
+  }));
+}
+function handleRowHistoryChange(sel){
+  const bedId=sel?.dataset?.bedId;
+  const rowIndex=parseInt(sel?.dataset?.rowIndex||'',10);
+  if(!bedId || !Number.isInteger(rowIndex)) return;
+  setBedRowHistoryFamily(bedId,rowIndex,sel.value);
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+}
 function syncWeatherUiFromState(){
   const w=normalizeWeatherState(APP_STATE.weather);
   APP_STATE.weather=w;
@@ -786,9 +841,11 @@ function renderBedsEditor(){
 function updateBedsFromUi(){
   const rows=[...document.querySelectorAll('#bedsList > [data-bed-id]')];
   if(!rows.length)return;
+  const byId=new Map((APP_STATE.beds||[]).map(b=>[b.id,b]));
   APP_STATE.beds=normalizeBeds(rows.map(r=>{
     const get=k=>r.querySelector(`[data-k="${k}"]`)?.value;
-    return {id:r.dataset.bedId||uid('bed'),name:get('name'),lengthFt:get('lengthFt'),widthFt:get('widthFt'),sun:get('sun'),drainage:get('drainage'),layoutMode:get('layoutMode'),rowSpacingIn:get('rowSpacingIn'),trellisSide:get('trellisSide'),trellisBandFt:get('trellisBandFt')};
+    const id=r.dataset.bedId||uid('bed');
+    return {id,name:get('name'),lengthFt:get('lengthFt'),widthFt:get('widthFt'),sun:get('sun'),drainage:get('drainage'),layoutMode:get('layoutMode'),rowSpacingIn:get('rowSpacingIn'),trellisSide:get('trellisSide'),trellisBandFt:get('trellisBandFt'),rowHistory:byId.get(id)?.rowHistory||[]};
   }));
   APP_STATE.bedPlacementPrefs=normalizeBedPlacementPrefs(APP_STATE.bedPlacementPrefs,APP_STATE.beds);
 }
@@ -826,6 +883,36 @@ function renderWeatherAlerts(crop=getSelectedCrop()){
 }
 function drainageRank(v){return ({poor:0,average:1,good:2,raised:3})[v]??1}
 function sunRank(v){return ({shade:0,part:1,full:2})[v]??1}
+function getRotationFamily(crop,sc=getStructuredCrop(crop)){
+  const n=String(crop?.name||'').toLowerCase();
+  if(/tomato|pepper|eggplant|tomatillo/.test(n)) return 'solanaceae';
+  if(/cucumber|squash|pumpkin|melon/.test(n)) return 'cucurbit';
+  if(/pea|bean|edamame|soybean|lima/.test(n)) return 'legume';
+  if(/onion|garlic|shallot|scallion|leek/.test(n)) return 'allium';
+  if(/broccoli|cabbage|cauliflower|brussels|kale|collard|radish|turnip|rutabaga|kohlrabi/.test(n)) return 'brassica';
+  if(/carrot|beet|parsnip|potato|sweet potato/.test(n)) return 'root';
+  if(/lettuce|spinach|chard|arugula|celtuce/.test(n)) return 'leafy';
+  if(/corn/.test(n)) return 'corn';
+  if(/strawberr|raspberr|blackberr|blueberr/.test(n)) return 'berry';
+  if(crop?.cat==='Perennials') return 'perennial';
+  if(crop?.cat==='Herbs') return 'herb';
+  if(crop?.cat==='Leafy Greens') return 'leafy';
+  if(crop?.cat==='Root Vegetables') return 'root';
+  if(crop?.cat==='Alliums') return 'allium';
+  if(crop?.cat==='Brassicas' || crop?.cat==='Cabbages') return 'brassica';
+  if(crop?.cat==='Berries') return 'berry';
+  return 'none';
+}
+function familyRotationWarning(prevFamily,currentFamily){
+  if(!prevFamily || prevFamily==='none' || !currentFamily || currentFamily==='none') return '';
+  if(prevFamily===currentFamily){
+    return `Rotation warning: same family (${ROTATION_FAMILY_LABELS[currentFamily]||currentFamily}) in the same row.`;
+  }
+  if((prevFamily==='solanaceae'&&currentFamily==='cucurbit')||(prevFamily==='cucurbit'&&currentFamily==='solanaceae')){
+    return '';
+  }
+  return '';
+}
 function bedSuitabilityScoreForCrop(bed,crop,sc){
   let score=0;
   const bedSun=sunRank(bed.sun), wantSun=String(sc?.site?.sun||'').toLowerCase();
@@ -859,7 +946,8 @@ function buildBedRowSnapLayout(allocation,bed){
   const settings=getBedRowSettings(bed);
   if(settings.mode!=='rows') return null;
   const rowLenFt=Math.max(1,Number(bed?.lengthFt)||1);
-  const lanes=Array.from({length:settings.rowCount},(_,i)=>({index:i,label:`R${i+1}`,remainingFt:rowLenFt,segments:[],overflowFt:0,isTrellis:false}));
+  const rowHistory=normalizeBedRowHistory(bed?.rowHistory,settings.rowCount);
+  const lanes=Array.from({length:settings.rowCount},(_,i)=>({index:i,label:`R${i+1}`,remainingFt:rowLenFt,segments:[],overflowFt:0,isTrellis:false,prevFamily:rowHistory[i]||'none',dominantFamily:'none',rotationWarning:''}));
   if(settings.trellisSide!=='none'){
     const trellisIndex=(settings.trellisSide==='south' || settings.trellisSide==='west') ? lanes.length-1 : 0;
     if(lanes[trellisIndex]){ lanes[trellisIndex].isTrellis=true; lanes[trellisIndex].label=`R${trellisIndex+1}`; }
@@ -889,7 +977,7 @@ function buildBedRowSnapLayout(allocation,bed){
       const take=round1(Math.min(need,lane.remainingFt));
       if(take<=0) continue;
       const usedFt=round1(rowLenFt-lane.remainingFt);
-      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis,preferredRow:Boolean(item.preferredRowIndex===lane.index)});
+      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis,preferredRow:Boolean(item.preferredRowIndex===lane.index),rotationFamily:getRotationFamily(item.crop,item.sc)});
       lane.remainingFt=round1(Math.max(0,lane.remainingFt-take));
       need=round1(Math.max(0,need-take));
     }
@@ -898,6 +986,16 @@ function buildBedRowSnapLayout(allocation,bed){
       if(targetLane) targetLane.overflowFt=round1((targetLane.overflowFt||0)+need);
     }
   }
+  lanes.forEach(lane=>{
+    const famLengths={};
+    lane.segments.forEach(seg=>{
+      const f=seg.rotationFamily||'none';
+      famLengths[f]=(famLengths[f]||0)+(seg.lenFt||0);
+    });
+    const dominant=Object.entries(famLengths).sort((a,b)=>b[1]-a[1])[0]?.[0]||'none';
+    lane.dominantFamily=dominant;
+    lane.rotationWarning=familyRotationWarning(lane.prevFamily,dominant);
+  });
   return {settings,rowLenFt,lanes,rowAssignments};
 }
 function getVarietyRecipeTags(crop,variety){
@@ -1259,13 +1357,29 @@ function renderRowSnapMapHtml(allocation,bed){
     }).join('');
     return `<div>
       <div class="pt-rowlane">
-        <div class="pt-rowlane-label">${escapeHtml(lane.label)}${lane.isTrellis?` <span class="trellis">T</span>`:''}</div>
+        <div class="pt-rowlane-label">${escapeHtml(lane.label)}${lane.isTrellis?` <span class="trellis">T</span>`:''}
+          <span class="pt-rowlane-prev"><select data-bed-id="${escapeHtml(bed.id)}" data-row-index="${lane.index}" onchange="handleRowHistoryChange(this)">${Object.entries(ROTATION_FAMILY_LABELS).map(([k,label])=>`<option value="${escapeHtml(k)}"${lane.prevFamily===k?' selected':''}>${escapeHtml(label)}</option>`).join('')}</select></span>
+        </div>
         <div class="pt-rowlane-track${lane.isTrellis?' trellis':''}" data-bed-id="${escapeHtml(bed.id)}" data-row-index="${lane.index}" ondragover="handleBedMapDragOver(event)" ondragenter="handleBedMapDragEnter(event)" ondragleave="handleBedMapDragLeave(event)" ondrop="handleRowLaneDrop(event)" title="${lane.isTrellis?'Trellis-preferred row. ':''}Drop a crop here to set preferred row">${segs}</div>
       </div>
+      ${lane.rotationWarning?`<div class="pt-rowlane-warning">${escapeHtml(lane.rotationWarning)}</div>`:''}
       ${lane.overflowFt?`<div class="pt-rowlane-overflow">Overflow: ~${lane.overflowFt.toFixed(1)} row-ft (bed too tight for row spacing / airflow at current allocation)</div>`:''}
     </div>`;
   }).join('');
   return `<div class="pt-bed-rowmap"><div class="pt-bed-rowmap-head">${head}</div>${lanesHtml}</div>`;
+}
+function collectRotationWarnings(allocation){
+  const warnings=[];
+  for(const bed of (allocation?.beds||[])){
+    const snap=buildBedRowSnapLayout(allocation,bed);
+    if(!snap) continue;
+    snap.lanes.forEach(lane=>{
+      if(lane.rotationWarning){
+        warnings.push({bed:bed.name,row:`R${lane.index+1}`,warning:lane.rotationWarning,prevFamily:lane.prevFamily,currentFamily:lane.dominantFamily});
+      }
+    });
+  }
+  return warnings;
 }
 function renderPlannerBedMaps(allocation){
   const host=document.getElementById('plannerBedMaps');
@@ -1344,7 +1458,8 @@ function renderPlannerBedAllocationSummary(allocation){
     el.innerHTML=`Beds are configured (${(allocation.bedsTotalSqFt||0).toFixed(1)} sq ft total), but no crop area has been allocated yet.`;
     return;
   }
-  el.innerHTML=`Bed allocation: ${usage.map(b=>`<code>${escapeHtml(b.name)}</code> ${b.assignedSqFt.toFixed(1)}/${b.sqFt.toFixed(1)} sq ft`).join(' · ')}${allocation.remainingSqFt!=null?` · Remaining pool: <strong>${allocation.remainingSqFt.toFixed(1)} sq ft</strong>`:''}`;
+  const rotationWarns=collectRotationWarnings(allocation);
+  el.innerHTML=`Bed allocation: ${usage.map(b=>`<code>${escapeHtml(b.name)}</code> ${b.assignedSqFt.toFixed(1)}/${b.sqFt.toFixed(1)} sq ft`).join(' · ')}${allocation.remainingSqFt!=null?` · Remaining pool: <strong>${allocation.remainingSqFt.toFixed(1)} sq ft</strong>`:''}${rotationWarns.length?` · <span class="warn">${rotationWarns.length} rotation warning${rotationWarns.length>1?'s':''}</span>`:''}`;
 }
 function renderPeoplePlanner(){
   const body=document.getElementById('plannerTableBody'),sum=document.getElementById('plannerSummary');
@@ -1558,6 +1673,8 @@ function buildAssistantContext(){
   const plan=crop?estimateCropPlan(crop):null;
   const allocation=crop?getPlannerAllocationForCrop(crop.name):null;
   const beds=getActiveBeds();
+  const fullAllocation=allocatePlannerRows(getPlannerRows({ignoreSearch:true}));
+  const rotationWarnings=collectRotationWarnings(fullAllocation).slice(0,10);
   return {
     date:CAL_NOW.toISOString().slice(0,10),
     zip:GARDEN_PROFILE.zip,
@@ -1565,11 +1682,12 @@ function buildAssistantContext(){
     county:GARDEN_PROFILE.county,
     soilProfile:{type:GARDEN_PROFILE.soilType},
     weatherSnapshot:{...normalizeWeatherState(APP_STATE.weather),alerts:weatherRiskFlags(crop||null).messages.slice(0,3)},
-    beds:{totalSqFt:totalBedSqFt(beds),items:beds.map(b=>({name:b.name,lengthFt:b.lengthFt,widthFt:b.widthFt,sqFt:bedSqFt(b),sun:b.sun,drainage:b.drainage,layoutMode:b.layoutMode,rowSpacingIn:b.rowSpacingIn,trellisSide:b.trellisSide}))},
+    beds:{totalSqFt:totalBedSqFt(beds),items:beds.map(b=>({name:b.name,lengthFt:b.lengthFt,widthFt:b.widthFt,sqFt:bedSqFt(b),sun:b.sun,drainage:b.drainage,layoutMode:b.layoutMode,rowSpacingIn:b.rowSpacingIn,trellisSide:b.trellisSide,rowHistory:b.rowHistory}))},
     placementPrefs:Object.fromEntries(Object.entries(APP_STATE.bedPlacementPrefs||{}).slice(0,20)),
     recipeTargets:{...APP_STATE.recipeTargets},
     uiContext:{activeTab:document.querySelector('.tab.active')?.textContent?.trim()||null,selectedCropId:sc?.id||null,selectedCropName:crop?.name||null},
     planner:{peopleCount:APP_STATE.peopleCount,mode:APP_STATE.plannerMode,bedSpaceLimitSqFt:APP_STATE.bedSpaceLimit||0,spacePriorityMode:APP_STATE.plannerPriorityMode||'balanced',selectedCropRecommendation:plan?{plants:plan.recPlants,areaSqFt:plan.areaSqFt,range:[plan.minPlants,plan.maxPlants],recipeBoost:plan.recipeBoost?.plantsRounded||0,recipeBoostMode:plan.recipeBoost?.mode||'legacy',allocation:allocation?.allocation?{status:allocation.allocation.status,assignedPlants:allocation.allocation.assignedPlants,assignedSqFt:allocation.allocation.assignedSqFt,beds:(allocation.allocation.bedAssignments||[]).map(a=>({name:a.bedName,plants:a.plants,sqFt:a.sqFt}))}:null}:null},
+    rotationWarnings,
     timing:crop?{currentMonth:MONTHS[CAL_MONTH],nextMonth:MONTHS[NEXT_MONTH],currentMonthActions:monthActionsForCrop(crop,CAL_MONTH).map(k=>TM[k].t),nextMonthActions:monthActionsForCrop(crop,NEXT_MONTH).map(k=>TM[k].t)}:null,
     structuredCrop:sc?{id:sc.id,spacing:sc.spacing,yield:sc.yield,site:sc.site,preservation:sc.preservation,ipm:sc.ipm,recipeProfiles:sc.recipeProfiles}:null,
     recipeVarietySuggestions:crop?getRecipeVarietySuggestions(crop):[],
@@ -1604,6 +1722,16 @@ function answerMasterGardener(question){
     const bedNames=allocRow?.allocation?.bedAssignments?.length?` Beds: ${allocRow.allocation.bedAssignments.map(a=>`${a.bedName} (${a.plants})`).join(', ')}.`:'';
     const allocMsg=allocRow?.allocation?` With your ${APP_STATE.bedSpaceLimit||totalBedSqFt()} sq ft planning limit and ${APP_STATE.plannerPriorityMode.replace('_',' ')} priority, this crop is currently ${plannerStatusLabel(allocRow.allocation,allocRow.plan).toLowerCase()}${allocRow.allocation.status==='partial'?` at ~${allocRow.allocation.assignedPlants} plants` :''}.${bedNames}`:'';
     return `For ${APP_STATE.peopleCount} people (${APP_STATE.plannerMode}), plan about ${plan.recPlants} ${crop.name} plants (range ${plan.minPlants}-${plan.maxPlants}), needing roughly ${plan.areaSqFt??'N/A'} sq ft. This estimate includes a ${(plan.success*100).toFixed(0)}% success factor buffer${plan.recipeBoost?.plantsRounded?` and a recipe-target boost of +${plan.recipeBoost.plantsRounded} plants`:''}.${allocMsg}`;
+  }
+  if(/\brotation|same row|after last year|previous season|row warning\b/.test(q)){
+    const fam=getRotationFamily(crop,sc);
+    const fullAllocation=allocatePlannerRows(getPlannerRows({ignoreSearch:true}));
+    const warns=collectRotationWarnings(fullAllocation).filter(w=>{
+      const alloc=getPlannerAllocationForCrop(crop.name);
+      return (alloc?.allocation?.bedAssignments||[]).some(a=>a.bedName===w.bed);
+    });
+    const assignedRows=(getPlannerAllocationForCrop(crop.name)?.allocation?.bedAssignments||[]).map(a=>a.bedName).join(', ')||'no assigned beds yet';
+    return `Rotation family for ${crop.name}: ${ROTATION_FAMILY_LABELS[fam]||fam}. Assigned beds: ${assignedRows}. ${warns.length?`Current row warnings affecting assigned beds: ${warns.map(w=>`${w.bed} ${w.row}: ${w.warning}`).join(' ')}`:'No row-family repeat warnings right now based on the row history dropdowns in your bed map.'}`;
   }
   if(/\bweather|rain|humid|humidity|mildew risk|can i work|soil too wet\b/.test(q)){
     const wx=normalizeWeatherState(APP_STATE.weather);

@@ -99,3 +99,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Drag/drop bed map placement preferences with lock/unlock controls (manual placement override MVP)
 - [x] Row/trellis snap layout view added to bed maps (spacing-aware row-foot visualization for airflow planning)
 - [x] Row-lane drag/drop placement preferences added (drop crops onto specific rows in row/trellis layout)
+- [x] Row occupancy/rotation warnings added using per-row previous-family history selectors
