@@ -136,12 +136,18 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-bed-map-head b{color:#2d5a27}
 .pt-bed-map-meta{font-size:.74em;color:#5a6a5a}
 .pt-bed-map-grid{display:grid;gap:3px;background:#eef4eb;border:1px solid #dfe8dc;border-radius:8px;padding:6px}
+.pt-bed-map-grid.drop-target{outline:2px dashed #4a8c3f;outline-offset:2px;background:#e8f5e0}
 .pt-bed-cell{min-height:20px;border-radius:4px;border:1px solid rgba(255,255,255,.45);position:relative}
 .pt-bed-cell.empty{background:repeating-linear-gradient(45deg,#f6faf4,#f6faf4 6px,#edf4ea 6px,#edf4ea 12px);border-color:#e5ece2}
+.pt-bed-cell.dragging{opacity:.55}
+.pt-bed-cell.locked{box-shadow:inset 0 0 0 2px #f59e0b}
 .pt-bed-cell span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.62em;font-weight:700;color:#173117;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 .pt-bed-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .pt-bed-legend-item{display:flex;align-items:center;gap:5px;background:#f8fbf6;border:1px solid #e0e8de;border-radius:999px;padding:3px 8px;font-size:.72em;color:#425242}
+.pt-bed-legend-item[draggable="true"]{cursor:grab}
+.pt-bed-legend-item.locked{border-color:#f59e0b;background:#fffbeb}
 .pt-bed-legend-swatch{width:11px;height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.08)}
+.pt-bed-legend-item button{padding:2px 6px;border:1px solid #d4ddd4;background:#fff;border-radius:999px;font-size:.68em;cursor:pointer}
 .pt-bed-empty{font-size:.76em;color:#617161}
 .vrtags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .vrtag{display:inline-block;background:#eef6ea;color:#2d5a27;border-radius:999px;padding:2px 7px;font-size:.7em;font-weight:600}
@@ -251,6 +257,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <div class="pt-bed-actions">
 <button type="button" onclick="addBedRow()">Add Bed</button>
 <button type="button" onclick="resetBeds()">Reset Beds</button>
+<button type="button" onclick="clearPlacementPrefs()">Clear Placements</button>
 <button type="button" onclick="saveBedAndWeatherState()">Save Beds/Weather</button>
 </div>
 <div class="pt-bed-summary" id="bedsSummary">No beds configured yet.</div>
@@ -427,9 +434,9 @@ const DEFAULT_BEDS=[
   {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good'}
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
-const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},beds:DEFAULT_BEDS.map(b=>({...b})),weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
+const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
-const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather'};
+const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
 const CATEGORY_SCHEMA_DEFAULTS={
@@ -612,6 +619,30 @@ function normalizeBeds(beds){
   })).filter(b=>b.lengthFt>0&&b.widthFt>0);
   return out.length?out:DEFAULT_BEDS.map(b=>({...b}));
 }
+function normalizeBedPlacementPrefs(prefs,beds=getActiveBeds()){
+  const src=(prefs&&typeof prefs==='object')?prefs:{};
+  const bedIds=new Set((beds||[]).map(b=>b.id));
+  const out={};
+  for(const [cropName,val] of Object.entries(src)){
+    if(!val || typeof val!=='object') continue;
+    const bedId=String(val.bedId||'');
+    if(!bedIds.has(bedId)) continue;
+    out[String(cropName)]={bedId,locked:Boolean(val.locked)};
+  }
+  return out;
+}
+function getPlacementPref(cropName){return APP_STATE.bedPlacementPrefs?.[cropName]||null}
+function setPlacementPref(cropName,patch){
+  if(!cropName)return;
+  const current=getPlacementPref(cropName)||{};
+  APP_STATE.bedPlacementPrefs={...APP_STATE.bedPlacementPrefs,[cropName]:{...current,...patch}};
+  APP_STATE.bedPlacementPrefs=normalizeBedPlacementPrefs(APP_STATE.bedPlacementPrefs,getActiveBeds());
+}
+function removePlacementPref(cropName){
+  const next={...(APP_STATE.bedPlacementPrefs||{})};
+  delete next[cropName];
+  APP_STATE.bedPlacementPrefs=next;
+}
 function bedSqFt(b){return round1((Number(b?.lengthFt)||0)*(Number(b?.widthFt)||0))}
 function getActiveBeds(){return normalizeBeds(APP_STATE.beds)}
 function totalBedSqFt(beds=getActiveBeds()){return round1(beds.reduce((s,b)=>s+bedSqFt(b),0))}
@@ -654,6 +685,7 @@ function weatherSnapshotLabel(){
 function persistBedAndWeatherState(){
   safeLocalStorageSet(LS_KEYS.beds,JSON.stringify(APP_STATE.beds));
   safeLocalStorageSet(LS_KEYS.weather,JSON.stringify(APP_STATE.weather));
+  safeLocalStorageSet(LS_KEYS.bedPlacementPrefs,JSON.stringify(APP_STATE.bedPlacementPrefs||{}));
 }
 function saveBedAndWeatherState(){
   updateBedsFromUi();
@@ -668,6 +700,10 @@ function loadBedAndWeatherState(){
     const bedsRaw=safeLocalStorageGet(LS_KEYS.beds);
     APP_STATE.beds=bedsRaw?normalizeBeds(JSON.parse(bedsRaw)):normalizeBeds(DEFAULT_BEDS);
   }catch{ APP_STATE.beds=normalizeBeds(DEFAULT_BEDS); }
+  try{
+    const prefsRaw=safeLocalStorageGet(LS_KEYS.bedPlacementPrefs);
+    APP_STATE.bedPlacementPrefs=prefsRaw?normalizeBedPlacementPrefs(JSON.parse(prefsRaw),APP_STATE.beds):{};
+  }catch{ APP_STATE.bedPlacementPrefs={}; }
   try{
     const wxRaw=safeLocalStorageGet(LS_KEYS.weather);
     APP_STATE.weather=wxRaw?normalizeWeatherState(JSON.parse(wxRaw)):normalizeWeatherState(WEATHER_STATE_DEFAULTS);
@@ -692,9 +728,17 @@ function removeBedRow(id){
 }
 function resetBeds(){
   APP_STATE.beds=normalizeBeds(DEFAULT_BEDS);
+  APP_STATE.bedPlacementPrefs=normalizeBedPlacementPrefs(APP_STATE.bedPlacementPrefs,APP_STATE.beds);
   renderBedsEditor();
   persistBedAndWeatherState();
   handlePlannerControls();
+}
+function clearPlacementPrefs(){
+  APP_STATE.bedPlacementPrefs={};
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
 }
 function renderBedsEditor(){
   const host=document.getElementById('bedsList');
@@ -717,6 +761,7 @@ function updateBedsFromUi(){
     const get=k=>r.querySelector(`[data-k="${k}"]`)?.value;
     return {id:r.dataset.bedId||uid('bed'),name:get('name'),lengthFt:get('lengthFt'),widthFt:get('widthFt'),sun:get('sun'),drainage:get('drainage')};
   }));
+  APP_STATE.bedPlacementPrefs=normalizeBedPlacementPrefs(APP_STATE.bedPlacementPrefs,APP_STATE.beds);
 }
 function handleBedConfigChange(){
   updateBedsFromUi();
@@ -959,8 +1004,15 @@ function allocatePlannerRows(rows){
     let plantsToPlace=r.plan.recPlants;
     const assignments=[];
     const sc=r.sc;
+    const pref=getPlacementPref(r.crop.name);
+    const lockedBedId=pref?.locked?pref.bedId:null;
     const rankedBeds=bedPool
-      .map((p,idx)=>({p,idx,score:bedSuitabilityScoreForCrop(p.bed,r.crop,sc)}))
+      .map((p,idx)=>{
+        let score=bedSuitabilityScoreForCrop(p.bed,r.crop,sc);
+        if(pref?.bedId && p.bed.id===pref.bedId) score+=pref.locked?1000:120;
+        return {p,idx,score};
+      })
+      .filter(item=>!lockedBedId || item.p.bed.id===lockedBedId)
       .sort((a,b)=>b.score-a.score||b.p.remainingSqFt-a.p.remainingSqFt||a.idx-b.idx);
     for(const item of rankedBeds){
       if(plantsToPlace<=0)break;
@@ -978,9 +1030,9 @@ function allocatePlannerRows(rows){
     const assignedSqFt=round1(assignments.reduce((s,a)=>s+a.sqFt,0));
     used=round1(used+assignedSqFt);
     remaining=round1(Math.max(0,budget-used));
-    if(assignedPlants>=r.plan.recPlants) return {...r,allocation:{status:'fit',assignedSqFt:assignedSqFt||area,assignedPlants:r.plan.recPlants,remainingAfter:remaining,bedAssignments:assignments}};
-    if(assignedPlants>0) return {...r,allocation:{status:'partial',assignedSqFt:assignedSqFt,assignedPlants,remainingAfter:remaining,bedAssignments:assignments}};
-    return {...r,allocation:{status:'defer',assignedSqFt:0,assignedPlants:0,remainingAfter:+remaining.toFixed(1),bedAssignments:[]}};
+    if(assignedPlants>=r.plan.recPlants) return {...r,allocation:{status:'fit',assignedSqFt:assignedSqFt||area,assignedPlants:r.plan.recPlants,remainingAfter:remaining,bedAssignments:assignments,lockedToBed:Boolean(lockedBedId),preferredBedId:pref?.bedId||null}};
+    if(assignedPlants>0) return {...r,allocation:{status:'partial',assignedSqFt:assignedSqFt,assignedPlants,remainingAfter:remaining,bedAssignments:assignments,lockedToBed:Boolean(lockedBedId),preferredBedId:pref?.bedId||null}};
+    return {...r,allocation:{status:'defer',assignedSqFt:0,assignedPlants:0,remainingAfter:+remaining.toFixed(1),bedAssignments:[],lockedToBed:Boolean(lockedBedId),preferredBedId:pref?.bedId||null}};
   });
   const bedUsage=bedPool.filter(b=>b.assignedSqFt>0).map(b=>({name:b.bed.name,assignedSqFt:round1(b.assignedSqFt),remainingSqFt:round1(b.remainingSqFt),sqFt:bedSqFt(b.bed)}));
   return {rows:withAlloc,budgetSqFt:budget,usedSqFt:used,remainingSqFt:+remaining.toFixed(1),limited:true,beds,hasBeds,bedsTotalSqFt:bedsTotal,bedUsage,manualCapSqFt:manualCap||0};
@@ -1017,10 +1069,79 @@ function buildBedMapEntries(allocation,bed){
   rows.forEach(r=>{
     (r.allocation?.bedAssignments||[]).forEach(a=>{
       if(a.bedId!==bed.id)return;
-      entries.push({cropName:r.crop.name,plants:a.plants,sqFt:a.sqFt,color:cropColor(r.crop.name),status:r.allocation.status});
+      const pref=getPlacementPref(r.crop.name);
+      entries.push({cropName:r.crop.name,plants:a.plants,sqFt:a.sqFt,color:cropColor(r.crop.name),status:r.allocation.status,locked:Boolean(pref?.locked&&pref?.bedId===bed.id),preferredBedId:pref?.bedId||null});
     });
   });
   return entries.sort((a,b)=>b.sqFt-a.sqFt||a.cropName.localeCompare(b.cropName));
+}
+function handleBedMapDragStart(evt){
+  const cropName=evt?.currentTarget?.dataset?.crop||evt?.target?.dataset?.crop;
+  if(!cropName)return;
+  if(evt.dataTransfer){
+    evt.dataTransfer.setData('text/plain',cropName);
+    evt.dataTransfer.effectAllowed='move';
+  }
+  evt.currentTarget?.classList?.add('dragging');
+}
+function handleBedMapDragEnd(evt){
+  evt.currentTarget?.classList?.remove('dragging');
+  document.querySelectorAll('.pt-bed-map-grid.drop-target').forEach(el=>el.classList.remove('drop-target'));
+}
+function handleBedMapDragOver(evt){
+  evt.preventDefault();
+  if(evt.dataTransfer) evt.dataTransfer.dropEffect='move';
+}
+function handleBedMapDragEnter(evt){
+  evt.preventDefault();
+  evt.currentTarget?.classList?.add('drop-target');
+}
+function handleBedMapDragLeave(evt){
+  if(!evt.currentTarget?.contains(evt.relatedTarget)) evt.currentTarget?.classList?.remove('drop-target');
+}
+function setCropPlacement(cropName,bedId,{lock=false}={}){
+  if(!cropName||!bedId)return;
+  const current=getPlacementPref(cropName);
+  setPlacementPref(cropName,{bedId,locked:lock?true:Boolean(current?.locked)});
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+}
+function handleBedMapDrop(evt){
+  evt.preventDefault();
+  const bedId=evt?.currentTarget?.dataset?.bedId;
+  const cropName=(evt.dataTransfer?.getData('text/plain')||'').trim();
+  evt.currentTarget?.classList?.remove('drop-target');
+  if(!cropName||!bedId)return;
+  setCropPlacement(cropName,bedId,{lock:false});
+}
+function toggleCropPlacementLock(cropName,bedId){
+  if(!cropName||!bedId)return;
+  const cur=getPlacementPref(cropName);
+  const nextLocked=!(cur?.locked && cur?.bedId===bedId);
+  setPlacementPref(cropName,{bedId,locked:nextLocked});
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+}
+function clearCropPlacementPref(cropName){
+  if(!cropName)return;
+  removePlacementPref(cropName);
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+}
+function toggleCropPlacementLockBtn(btn){
+  const cropName=btn?.dataset?.crop;
+  const bedId=btn?.dataset?.bedId;
+  toggleCropPlacementLock(cropName,bedId);
+}
+function clearCropPlacementPrefBtn(btn){
+  const cropName=btn?.dataset?.crop;
+  clearCropPlacementPref(cropName);
 }
 function renderPlannerBedMaps(allocation){
   const host=document.getElementById('plannerBedMaps');
@@ -1041,17 +1162,26 @@ function renderPlannerBedMaps(allocation){
     while(cells.length<Math.min(240,bedArea)) cells.push(null);
     const gridStyle=`grid-template-columns:repeat(${cols}, minmax(8px,1fr));`;
     const usedSqFt=round1(entries.reduce((s,e)=>s+e.sqFt,0));
-    const legends=entries.map(e=>`<span class="pt-bed-legend-item"><span class="pt-bed-legend-swatch" style="background:${e.color}"></span>${escapeHtml(e.cropName)} · ${e.plants} plants · ${e.sqFt.toFixed(1)} sq ft</span>`).join('');
+    const legends=entries.map(e=>{
+      const pref=getPlacementPref(e.cropName);
+      const lockedHere=Boolean(pref?.locked && pref?.bedId===bed.id);
+      const preferredElsewhere=pref?.bedId && pref.bedId!==bed.id;
+      return `<span class="pt-bed-legend-item ${lockedHere?'locked':''}" draggable="true" data-crop="${escapeHtml(e.cropName)}" ondragstart="handleBedMapDragStart(event)" ondragend="handleBedMapDragEnd(event)" title="Drag to another bed to move preference">
+        <span class="pt-bed-legend-swatch" style="background:${e.color}"></span>${escapeHtml(e.cropName)} · ${e.plants} plants · ${e.sqFt.toFixed(1)} sq ft${preferredElsewhere?' · split':''}
+        <button type="button" data-crop="${escapeHtml(e.cropName)}" data-bed-id="${escapeHtml(bed.id)}" onclick="toggleCropPlacementLockBtn(this)" title="${lockedHere?'Unlock placement':'Lock to this bed'}">${lockedHere?'Unlock':'Lock'}</button>
+        <button type="button" data-crop="${escapeHtml(e.cropName)}" onclick="clearCropPlacementPrefBtn(this)" title="Clear saved preference">Clear</button>
+      </span>`;
+    }).join('');
     return `<div class="pt-bed-map-card">
       <div class="pt-bed-map-head">
         <b>${escapeHtml(bed.name)}</b>
         <div class="pt-bed-map-meta">${bed.lengthFt}x${bed.widthFt} ft · ${bedSqFt(bed).toFixed(1)} sq ft · sun ${escapeHtml(bed.sun)} · drainage ${escapeHtml(bed.drainage)} · used ${usedSqFt.toFixed(1)} sq ft</div>
       </div>
-      <div class="pt-bed-map-grid" style="${gridStyle}" title="${escapeHtml(bed.name)} layout map (approx by area)">
+      <div class="pt-bed-map-grid" data-bed-id="${escapeHtml(bed.id)}" ondragover="handleBedMapDragOver(event)" ondragenter="handleBedMapDragEnter(event)" ondragleave="handleBedMapDragLeave(event)" ondrop="handleBedMapDrop(event)" style="${gridStyle}" title="${escapeHtml(bed.name)} layout map (approx by area) · drop crop blocks here to move">
         ${cells.map((cell,i)=>{
           if(!cell) return `<div class="pt-bed-cell empty" title="Open space"></div>`;
           const label=i===0 || (i>0 && cells[i-1]?.cropName!==cell.cropName)?escapeHtml(cell.cropName.split(' ').slice(0,2).join(' ')):'';
-          return `<div class="pt-bed-cell" style="background:${cell.color}" title="${escapeHtml(cell.cropName)} (${cell.plants} plants, ${cell.sqFt.toFixed(1)} sq ft approx)"><span style="color:${contrastTextForHslFill()}">${label}</span></div>`;
+          return `<div class="pt-bed-cell${cell.locked?' locked':''}" draggable="true" data-crop="${escapeHtml(cell.cropName)}" ondragstart="handleBedMapDragStart(event)" ondragend="handleBedMapDragEnd(event)" style="background:${cell.color}" title="${escapeHtml(cell.cropName)} (${cell.plants} plants, ${cell.sqFt.toFixed(1)} sq ft approx)${cell.locked?' · locked to this bed':''}"><span style="color:${contrastTextForHslFill()}">${label}</span></div>`;
         }).join('')}
       </div>
       ${legends?`<div class="pt-bed-legend">${legends}</div>`:`<div class="pt-bed-empty">No crop blocks assigned yet for this bed.</div>`}
@@ -1116,6 +1246,7 @@ function renderPeoplePlanner(){
     if(sc.recipeProfiles?.length) note.push(`Recipes: ${sc.recipeProfiles.map(p=>p.recipe).join(', ')}`);
     const picks=getRecipeVarietySuggestions(crop);
     if(picks.length) note.push(`Varieties: ${picks.map(p=>`${p.name} [${p.tags.join('/')}]`).slice(0,2).join('; ')}`);
+    if(alloc?.lockedToBed && alloc?.preferredBedId) note.push(`Locked placement`);
     note.push(`Priority ${selected?.name===crop.name?'selected + ':''}${Number(priorityScore||0).toFixed(1)}`);
     if(alloc?.bedAssignments?.length) note.push(`Beds: ${alloc.bedAssignments.map(a=>`${a.bedName} (${a.plants})`).join(', ')}`);
     const plantsCell=alloc?.status==='partial'?`<strong>${plan.recPlants}</strong><br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedPlants}</span>`:`<strong>${plan.recPlants}</strong>`;
@@ -1308,6 +1439,7 @@ function buildAssistantContext(){
     soilProfile:{type:GARDEN_PROFILE.soilType},
     weatherSnapshot:{...normalizeWeatherState(APP_STATE.weather),alerts:weatherRiskFlags(crop||null).messages.slice(0,3)},
     beds:{totalSqFt:totalBedSqFt(beds),items:beds.map(b=>({name:b.name,lengthFt:b.lengthFt,widthFt:b.widthFt,sqFt:bedSqFt(b),sun:b.sun,drainage:b.drainage}))},
+    placementPrefs:Object.fromEntries(Object.entries(APP_STATE.bedPlacementPrefs||{}).slice(0,20)),
     recipeTargets:{...APP_STATE.recipeTargets},
     uiContext:{activeTab:document.querySelector('.tab.active')?.textContent?.trim()||null,selectedCropId:sc?.id||null,selectedCropName:crop?.name||null},
     planner:{peopleCount:APP_STATE.peopleCount,mode:APP_STATE.plannerMode,bedSpaceLimitSqFt:APP_STATE.bedSpaceLimit||0,spacePriorityMode:APP_STATE.plannerPriorityMode||'balanced',selectedCropRecommendation:plan?{plants:plan.recPlants,areaSqFt:plan.areaSqFt,range:[plan.minPlants,plan.maxPlants],recipeBoost:plan.recipeBoost?.plantsRounded||0,recipeBoostMode:plan.recipeBoost?.mode||'legacy',allocation:allocation?.allocation?{status:allocation.allocation.status,assignedPlants:allocation.allocation.assignedPlants,assignedSqFt:allocation.allocation.assignedSqFt,beds:(allocation.allocation.bedAssignments||[]).map(a=>({name:a.bedName,plants:a.plants,sqFt:a.sqFt}))}:null}:null},
