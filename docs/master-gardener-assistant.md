@@ -38,6 +38,7 @@ Create a "master gardener" style assistant that answers using your garden's actu
 
 ## Architecture (Pragmatic)
 - `App UI`: sends user question + context payload
+- `Backend Proxy` (recommended): holds provider API key and forwards sanitized requests
 - `Garden Data Layer`: crop schema, beds, logs, recipe targets
 - `Retriever`: fetches relevant crop notes, pest/disease entries, extension snippets
 - `LLM`: responds in gardener persona using retrieved context
@@ -74,3 +75,7 @@ Create a "master gardener" style assistant that answers using your garden's actu
 - Add an "Ask Master Gardener" panel on crop detail pages
 - Include quick prompts: `What to do now`, `Spacing`, `Pests`, `Harvest`, `Preserve`
 - Show source badges in responses
+
+## Implementation Note (Current App)
+- The app now supports `Local`, direct `API`, and `Proxy (recommended)` modes.
+- Proxy request/response contract is documented in `docs/master-gardener-proxy.md`.

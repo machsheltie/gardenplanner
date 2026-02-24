@@ -188,6 +188,8 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <div class="pt-ctrls">
 <label>People <input id="peopleCountInput" type="number" min="1" max="20" value="2" oninput="handlePlannerControls()"></label>
 <label>Goal <select id="plannerMode" onchange="handlePlannerControls()"><option value="fresh">Fresh</option><option value="balanced" selected>Balanced</option><option value="preserve">Preserve-heavy</option></select></label>
+<label>Bed Space (sq ft) <input id="bedSpaceLimitInput" type="number" min="0" max="5000" step="1" value="0" oninput="handlePlannerControls()" title="0 = no limit"></label>
+<label>When Tight <select id="plannerPriorityMode" onchange="handlePlannerControls()"><option value="balanced" selected>Balanced priority</option><option value="recipe_first">Recipe targets first</option><option value="fresh_first">Fresh staples first</option></select></label>
 <label>Search <input id="plannerSearch" type="text" placeholder="Filter crops..." oninput="handlePlannerControls()"></label>
 </div>
 <div class="pt-recipes">
@@ -198,14 +200,16 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 </div>
 <div class="pt-recipes-note" id="recipeDemandSummary">Recipe target boosts are off (all set to 0).</div>
 <div class="pt-sum" id="plannerSummary">Set household size to generate recommended plants and bed space.</div>
-<div class="pt-tbl-wrap"><table class="pt-tbl"><thead><tr><th>Crop</th><th>Spacing</th><th>Plants</th><th>Sq Ft</th><th>Notes</th></tr></thead><tbody id="plannerTableBody"></tbody></table></div>
+<div class="pt-tbl-wrap"><table class="pt-tbl"><thead><tr><th>Crop</th><th>Spacing</th><th>Plants</th><th>Sq Ft</th><th>Status</th><th>Notes</th></tr></thead><tbody id="plannerTableBody"></tbody></table></div>
 </div>
 <div class="pt-card">
 <h3>Master Gardener (Garden-Aware MVP)</h3>
 <div class="mg-box">
 <div class="mg-note" id="mgCropContext">Select a crop in “Varieties & Tips” to ask crop-specific questions.</div>
 <div class="mg-config">
-<label>Mode<select id="mgMode" onchange="handleAssistantConfigChange()"><option value="local" selected>Local fallback</option><option value="api">API (OpenAI-compatible)</option></select></label>
+<label>Mode<select id="mgMode" onchange="handleAssistantConfigChange()"><option value="local" selected>Local fallback</option><option value="proxy">Proxy (recommended)</option><option value="api">API (OpenAI-compatible)</option></select></label>
+<label>Proxy URL<input id="mgProxyEndpoint" type="text" placeholder="/api/master-gardener" oninput="handleAssistantConfigChange()"></label>
+<label>Proxy Token (opt)<input id="mgProxyToken" type="password" placeholder="optional shared token" oninput="handleAssistantConfigChange()"></label>
 <label>Endpoint<input id="mgEndpoint" type="text" placeholder="https://.../chat/completions" oninput="handleAssistantConfigChange()"></label>
 <label>Model<input id="mgModel" type="text" placeholder="gpt-4o-mini" oninput="handleAssistantConfigChange()"></label>
 <label>API Key<input id="mgApiKey" type="password" placeholder="sk-..." oninput="handleAssistantConfigChange()"></label>
@@ -356,10 +360,12 @@ function highlightCurrentMonthHeader(){
 }
 const GARDEN_PROFILE={zip:'40165',zone:'6b/7a',soilType:'heavy Kentucky red clay',county:'Bullitt',location:'Shepherdsville, KY'};
 const RECIPE_TARGET_DEFAULTS={salsaPints:0,pickleQuarts:0,pestoBatches:0,curryPots:0};
-const ASSISTANT_CONFIG_DEFAULTS={mode:'local',endpoint:'',model:'gpt-4o-mini',apiKey:''};
-const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',recipeTargets:{...RECIPE_TARGET_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
+const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
+const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
 const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig'};
+const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
+const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
 const CATEGORY_SCHEMA_DEFAULTS={
   'Peas':{spacing:{inRowIn:2,betweenRowsIn:18,squareFootQty:8},yield:{unit:'lb_pods',perPlantRange:[0.2,0.5]},site:{sun:'full',water:'moderate',phRange:[6.0,7.5],drainage:'well_drained'},householdPlanning:{freshRange:[12,24],preserveRange:[24,40],successFactor:.8},preservation:{bestUses:['freeze'],avoid:['canning quality loss']},ipm:{commonPests:['aphids','pea weevil'],commonDiseases:['powdery mildew','fusarium wilt'],prevention:['trellis airflow','early sowing','crop rotation'],scoutFor:['leaf curling','powdery film','stunted vines']}},
   'Beans':{spacing:{inRowIn:4,betweenRowsIn:18,squareFootQty:4},yield:{unit:'lb_pods',perPlantRange:[0.3,0.8]},site:{sun:'full',water:'moderate',phRange:[6.0,7.0],drainage:'well_drained'},householdPlanning:{freshRange:[10,20],preserveRange:[30,60],successFactor:.82},preservation:{bestUses:['freeze','pressure_can']},ipm:{commonPests:['bean beetles','aphids','stink bugs'],commonDiseases:['bacterial blight','rust'],prevention:['avoid working wet foliage','succession sowing','crop rotation'],scoutFor:['shot holes','leaf spots','bronzing pods']}},
@@ -387,17 +393,22 @@ const CROP_SCHEMA_OVERRIDES={
   'Carrots':{spacing:{inRowIn:2.5,betweenRowsIn:12,squareFootQty:16},householdPlanning:{freshRange:[40,70],preserveRange:[80,140],successFactor:.75},yield:{unit:'roots',perPlantRange:[1,1]},site:{sun:'full',water:'even',drainage:'loose_top_layer'},ipm:{commonPests:['carrot rust fly','leafhoppers'],commonDiseases:['alternaria leaf blight'],prevention:['compost trench in clay','thin on time'],scoutFor:['forking roots','top spots','poor emergence']}},
   'Beets':{spacing:{inRowIn:3.5,betweenRowsIn:12,squareFootQty:9},householdPlanning:{freshRange:[30,50],preserveRange:[60,100],successFactor:.8},yield:{unit:'roots',perPlantRange:[1,1]},preservation:{bestUses:['pickle','roast','storage_short']}},
   'Potatoes':{spacing:{inRowIn:12,betweenRowsIn:30,squareFootQty:.6},householdPlanning:{freshRange:[8,20],preserveRange:[20,50],successFactor:.82},yield:{unit:'lb_tubers',perPlantRange:[1.5,4]},site:{sun:'full',water:'consistent',drainage:'loose_hilled'},ipm:{commonPests:['colorado potato beetle','flea beetles'],commonDiseases:['early blight','late blight','scab'],prevention:['hill soil','mulch','rotation'],scoutFor:['striped beetles','leaf lesions','scabby tubers']}},
-  'Onions':{spacing:{inRowIn:6,betweenRowsIn:12,squareFootQty:4},site:{sun:'full',water:'moderate',phRange:[6.0,7.0]},householdPlanning:{freshRange:[30,60],preserveRange:[60,120],successFactor:.9},yield:{unit:'bulbs',perPlantRange:[1,1]},preservation:{bestUses:['curing','storage','pickling']}},
-  'Garlic':{spacing:{inRowIn:6,betweenRowsIn:12,squareFootQty:4},site:{sun:'full',water:'moderate',phRange:[6.0,7.0]},householdPlanning:{freshRange:[20,40],preserveRange:[40,100],successFactor:.9},yield:{unit:'bulbs',perPlantRange:[1,1]},preservation:{bestUses:['curing','storage']},ipm:{commonPests:['thrips'],commonDiseases:['white rot','rust'],prevention:['crop rotation','well-drained soil'],scoutFor:['yellowing leaves','bulb decay']}},
+  'Onions':{spacing:{inRowIn:6,betweenRowsIn:12,squareFootQty:4},site:{sun:'full',water:'moderate',phRange:[6.0,7.0]},householdPlanning:{freshRange:[30,60],preserveRange:[60,120],successFactor:.9},yield:{unit:'bulbs',perPlantRange:[1,1]},preservation:{bestUses:['curing','storage','pickling']},recipeProfiles:[{recipe:'salsa',unitsPerPlant:.12,preferredVarieties:['Superstar (White)','Candy'],notes:'Fresh salsa onions are often white/sweet onions, chopped volume per pint is modest.'},{recipe:'pickles',unitsPerPlant:.2,preferredVarieties:['Borettana (Cipollini)','Evergreen Hardy White (Scallion)'],notes:'Pickled onions and mixed jars use more onion units.'},{recipe:'curry',unitsPerPlant:.08,preferredVarieties:['Patterson','Candy','Zebrune (Shallot)'],notes:'Storage onions/shallots fit cooked curry bases.'}]},
+  'Garlic':{spacing:{inRowIn:6,betweenRowsIn:12,squareFootQty:4},site:{sun:'full',water:'moderate',phRange:[6.0,7.0]},householdPlanning:{freshRange:[20,40],preserveRange:[40,100],successFactor:.9},yield:{unit:'bulbs',perPlantRange:[1,1]},preservation:{bestUses:['curing','storage']},recipeProfiles:[{recipe:'salsa',unitsPerPlant:.18,preferredVarieties:['Georgian Fire'],notes:'Raw salsa often uses cloves, so one bulb supports multiple jars.'},{recipe:'pickles',unitsPerPlant:.3,preferredVarieties:['Music','Inchelium Red'],notes:'Pickle jars usually use cloves, not whole bulbs.'},{recipe:'pesto',unitsPerPlant:.35,preferredVarieties:['Music','Chesnok Red'],notes:'Support ingredient; one bulb stretches across multiple pesto batches.'},{recipe:'curry',unitsPerPlant:.22,preferredVarieties:['Music','Persian Star'],notes:'Steady cooked use benefits from a storage cushion.'}],ipm:{commonPests:['thrips'],commonDiseases:['white rot','rust'],prevention:['crop rotation','well-drained soil'],scoutFor:['yellowing leaves','bulb decay']}},
   'Bush Snap Beans':{spacing:{inRowIn:4,betweenRowsIn:18,squareFootQty:4},householdPlanning:{freshRange:[18,36],preserveRange:[50,100],successFactor:.84},yield:{unit:'lb_pods',perPlantRange:[0.35,0.8]},preservation:{bestUses:['freeze','can']}},
   'Pole Snap Beans':{spacing:{inRowIn:6,betweenRowsIn:24,squareFootQty:2},householdPlanning:{freshRange:[8,16],preserveRange:[20,40],successFactor:.82},yield:{unit:'lb_pods',perPlantRange:[1,3]},preservation:{bestUses:['freeze','can']}},
-  'Tomatoes':{spacing:{inRowIn:24,betweenRowsIn:36,squareFootQty:1},site:{sun:'full',water:'consistent',phRange:[6.2,6.8]},householdPlanning:{freshRange:[3,6],preserveRange:[8,18],successFactor:.7},yield:{unit:'lb_fruit',perPlantRange:[10,25]},preservation:{bestUses:['salsa','sauce','freeze','dehydrate']},ipm:{commonPests:['hornworms','stink bugs','aphids'],commonDiseases:['early blight','septoria','late blight'],prevention:['mulch','prune lower leaves','cage/stake for airflow'],scoutFor:['leaf spots','chewing damage','fruit cracking']}},
-  'Peppers':{spacing:{inRowIn:16,betweenRowsIn:24,squareFootQty:1},site:{sun:'full',water:'consistent',phRange:[6.0,6.8]},householdPlanning:{freshRange:[6,14],preserveRange:[12,28],successFactor:.76},yield:{unit:'fruit',perPlantRange:[8,40]},preservation:{bestUses:['salsa','pickle','dehydrate','freeze']},ipm:{commonPests:['aphids','stink bugs','pepper maggot','flea beetles'],commonDiseases:['bacterial leaf spot','phytophthora blight'],prevention:['mulch','raised beds in clay','avoid wet foliage'],scoutFor:['leaf spotting','wilt after rain','fruit punctures']}},
-  'Eggplant':{spacing:{inRowIn:18,betweenRowsIn:30,squareFootQty:1},householdPlanning:{freshRange:[2,6],preserveRange:[4,8],successFactor:.72},yield:{unit:'fruit',perPlantRange:[4,15]},ipm:{commonPests:['flea beetles','aphids'],commonDiseases:['verticillium wilt','fruit rot'],prevention:['row cover early','rotation'],scoutFor:['shot holes','wilting','fruit blemishes']}},
-  'Tomatillos':{spacing:{inRowIn:24,betweenRowsIn:36,squareFootQty:1},householdPlanning:{freshRange:[2,4],preserveRange:[4,8],successFactor:.84},yield:{unit:'lb_husked',perPlantRange:[8,20]},preservation:{bestUses:['salsa_verde','freeze']},ipm:{commonPests:['flea beetles','aphids'],commonDiseases:['early blight (less common)','leaf spots'],prevention:['cage support','mulch'],scoutFor:['leaf chewing','husk split ripe fruit']}},
-  'Cucumbers':{spacing:{inRowIn:12,betweenRowsIn:36,squareFootQty:1},site:{sun:'full',water:'consistent',phRange:[6.0,7.0]},householdPlanning:{freshRange:[2,6],preserveRange:[4,12],successFactor:.72},yield:{unit:'fruit',perPlantRange:[8,25]},preservation:{bestUses:['pickles','refrigerator_pickles']},ipm:{commonPests:['cucumber beetles','aphids','squash bugs'],commonDiseases:['downy mildew','powdery mildew','bacterial wilt'],prevention:['trellis','row cover pre-bloom','resistant varieties'],scoutFor:['striped beetles','wilting vines','mildew patches']}},
+  'Tomatoes':{spacing:{inRowIn:24,betweenRowsIn:36,squareFootQty:1},site:{sun:'full',water:'consistent',phRange:[6.2,6.8]},householdPlanning:{freshRange:[3,6],preserveRange:[8,18],successFactor:.7},yield:{unit:'lb_fruit',perPlantRange:[10,25]},preservation:{bestUses:['salsa','sauce','freeze','dehydrate']},recipeProfiles:[{recipe:'salsa',unitsPerPlant:2.5,preferredVarieties:['paste / sauce tomatoes','firm roma types'],notes:'Use paste/sauce tomatoes for canned salsa body; slicers add water.'},{recipe:'curry',unitsPerPlant:4,preferredVarieties:['paste / all-purpose'],notes:'Cooked curry bases can lean on paste/all-purpose tomatoes.'}],ipm:{commonPests:['hornworms','stink bugs','aphids'],commonDiseases:['early blight','septoria','late blight'],prevention:['mulch','prune lower leaves','cage/stake for airflow'],scoutFor:['leaf spots','chewing damage','fruit cracking']}},
+  'Peppers':{spacing:{inRowIn:16,betweenRowsIn:24,squareFootQty:1},site:{sun:'full',water:'consistent',phRange:[6.0,6.8]},householdPlanning:{freshRange:[6,14],preserveRange:[12,28],successFactor:.76},yield:{unit:'fruit',perPlantRange:[8,40]},preservation:{bestUses:['salsa','pickle','dehydrate','freeze']},recipeProfiles:[{recipe:'salsa',unitsPerPlant:6,preferredVarieties:['Carmen','Lipstick','jalapeno/serrano types'],notes:'Salsa demand usually splits sweet + hot peppers.'},{recipe:'pickles',unitsPerPlant:10,preferredVarieties:['Sweet Banana','Golden Greek Pepperoncini','jalapeno types'],notes:'Pickled rings and mixed jars use many fruits.'},{recipe:'curry',unitsPerPlant:8,preferredVarieties:['sweet frying peppers','Aji Amarillo','Aji Dulce'],notes:'Curries use peppers for body and aroma, not just heat.'}],ipm:{commonPests:['aphids','stink bugs','pepper maggot','flea beetles'],commonDiseases:['bacterial leaf spot','phytophthora blight'],prevention:['mulch','raised beds in clay','avoid wet foliage'],scoutFor:['leaf spotting','wilt after rain','fruit punctures']}},
+  'Eggplant':{spacing:{inRowIn:18,betweenRowsIn:30,squareFootQty:1},householdPlanning:{freshRange:[2,6],preserveRange:[4,8],successFactor:.72},yield:{unit:'fruit',perPlantRange:[4,15]},recipeProfiles:[{recipe:'curry',unitsPerPlant:6,preferredVarieties:['Asian types for quick cook','globe types for body'],notes:'Curries often use fewer plants than peppers but steady harvest helps.'}],ipm:{commonPests:['flea beetles','aphids'],commonDiseases:['verticillium wilt','fruit rot'],prevention:['row cover early','rotation'],scoutFor:['shot holes','wilting','fruit blemishes']}},
+  'Tomatillos':{spacing:{inRowIn:24,betweenRowsIn:36,squareFootQty:1},householdPlanning:{freshRange:[2,4],preserveRange:[4,8],successFactor:.84},yield:{unit:'lb_husked',perPlantRange:[8,20]},preservation:{bestUses:['salsa_verde','freeze']},recipeProfiles:[{recipe:'salsa',unitsPerPlant:5,preferredVarieties:['Cisineros','Purple (De Milpa)','Amarylla'],notes:'Use tomatillo plants for verde/golden/purple salsa targets.'}],ipm:{commonPests:['flea beetles','aphids'],commonDiseases:['early blight (less common)','leaf spots'],prevention:['cage support','mulch'],scoutFor:['leaf chewing','husk split ripe fruit']}},
+  'Cucumbers':{spacing:{inRowIn:12,betweenRowsIn:36,squareFootQty:1},site:{sun:'full',water:'consistent',phRange:[6.0,7.0]},householdPlanning:{freshRange:[2,6],preserveRange:[4,12],successFactor:.72},yield:{unit:'fruit',perPlantRange:[8,25]},preservation:{bestUses:['pickles','refrigerator_pickles']},recipeProfiles:[{recipe:'pickles',unitsPerPlant:10,preferredVarieties:['pickling cucumbers'],notes:'Pickling yield depends on dedicated pickling varieties and frequent harvest.'}],ipm:{commonPests:['cucumber beetles','aphids','squash bugs'],commonDiseases:['downy mildew','powdery mildew','bacterial wilt'],prevention:['trellis','row cover pre-bloom','resistant varieties'],scoutFor:['striped beetles','wilting vines','mildew patches']}},
   'Zucchini/Summer Squash':{spacing:{inRowIn:24,betweenRowsIn:36,squareFootQty:1},householdPlanning:{freshRange:[1,3],preserveRange:[2,5],successFactor:.68},yield:{unit:'fruit',perPlantRange:[8,25]},preservation:{bestUses:['freeze_shredded','pickle_relish']},ipm:{commonPests:['squash vine borer','squash bugs'],commonDiseases:['powdery mildew','mosaic virus'],prevention:['stem wraps','succession planting','resistant varieties'],scoutFor:['sudden wilt','leaf stippling','white mildew']}},
   'Winter Squash & Pumpkins':{spacing:{inRowIn:48,betweenRowsIn:72,squareFootQty:.15},householdPlanning:{freshRange:[2,6],preserveRange:[4,10],successFactor:.7},yield:{unit:'fruit',perPlantRange:[2,10]},site:{sun:'full',water:'consistent'},preservation:{bestUses:['cure_storage','puree_by_safe_method']}},
+  'Basil (Genovese)':{spacing:{inRowIn:10,betweenRowsIn:12,squareFootQty:4},householdPlanning:{freshRange:[2,5],preserveRange:[4,10],successFactor:.88},yield:{unit:'cuttings',perPlantRange:[10,30]},preservation:{bestUses:['pesto','freeze','dry_small_amounts']},recipeProfiles:[{recipe:'pesto',unitsPerPlant:1.25,preferredVarieties:['Everleaf Genovese','Napoletano (Lettuce Leaf)'],notes:'Slow-bolt Genovese types reduce succession pressure for pesto targets.'}],ipm:{commonPests:['japanese beetles','aphids'],commonDiseases:['downy mildew','fusarium wilt'],prevention:['airflow','morning harvest','resistant or slow-bolt varieties'],scoutFor:['yellowing between veins','gray fuzz underside','leaf chew damage']}},
+  'Dill':{spacing:{inRowIn:6,betweenRowsIn:12,squareFootQty:4},householdPlanning:{freshRange:[2,6],preserveRange:[4,12],successFactor:.86},yield:{unit:'cuttings_or_heads',perPlantRange:[3,12]},preservation:{bestUses:['pickles','dry_seed']},recipeProfiles:[{recipe:'pickles',unitsPerPlant:4,preferredVarieties:['Bouquet','Mammoth','Superdukat'],notes:'Pickle-head production differs a lot by dill variety (leaf vs head types).'}]},
+  'Parsley':{spacing:{inRowIn:8,betweenRowsIn:12,squareFootQty:4},householdPlanning:{freshRange:[2,6],preserveRange:[4,10],successFactor:.9},yield:{unit:'cuttings',perPlantRange:[10,40]},preservation:{bestUses:['fresh','freeze','dry']},recipeProfiles:[{recipe:'pesto',unitsPerPlant:1.5,preferredVarieties:['Giant of Italy (Italian Flat-Leaf)'],notes:'Parsley pesto extends basil and gives a backup green sauce crop.'}]},
+  'Cilantro / Coriander':{spacing:{inRowIn:4,betweenRowsIn:12,squareFootQty:9},householdPlanning:{freshRange:[12,24],preserveRange:[20,36],successFactor:.7},yield:{unit:'cuttings_or_seed',perPlantRange:[2,8]},preservation:{bestUses:['fresh','freeze_chutney','seed_coriander']},recipeProfiles:[{recipe:'salsa',unitsPerPlant:6,preferredVarieties:['Calypso (Slow-Bolt)'],notes:'Salsa cilantro needs succession due to heat bolting.'},{recipe:'curry',unitsPerPlant:4,preferredVarieties:['Calypso (Slow-Bolt)','Rak Bai (Thai Cilantro)'],notes:'Successions matter more than a single large planting.'}]},
+  'Lemongrass':{spacing:{inRowIn:18,betweenRowsIn:24,squareFootQty:1},householdPlanning:{freshRange:[1,2],preserveRange:[1,3],successFactor:.9},yield:{unit:'stalks',perPlantRange:[5,20]},preservation:{bestUses:['freeze','paste']},recipeProfiles:[{recipe:'curry',unitsPerPlant:8,preferredVarieties:['Cymbopogon citratus'],notes:'One healthy clump can cover many curry sessions.'}]},
   'Strawberries (Junebearing)':{spacing:{inRowIn:15,betweenRowsIn:42,squareFootQty:.3},householdPlanning:{freshRange:[12,24],preserveRange:[24,50],successFactor:.8},yield:{unit:'lb_berries',perPlantRange:[0.5,1.2]},preservation:{bestUses:['jam','freeze']}},
   'Strawberries (Everbearing)':{spacing:{inRowIn:12,betweenRowsIn:24,squareFootQty:.5},householdPlanning:{freshRange:[8,18],preserveRange:[16,30],successFactor:.78},yield:{unit:'lb_berries',perPlantRange:[0.3,0.8]},preservation:{bestUses:['fresh','freeze']}},
   'Blackberries (Thornless)':{spacing:{inRowIn:48,betweenRowsIn:96,squareFootQty:.08},householdPlanning:{freshRange:[2,4],preserveRange:[4,8],successFactor:.78},yield:{unit:'lb_fruit',perPlantRange:[8,25]},preservation:{bestUses:['jam','freeze','syrup']}},
@@ -489,6 +500,7 @@ function getStructuredCrop(crop){
     yield:merged.yield||null,
     householdPlanning:merged.householdPlanning||null,
     preservation:merged.preservation||null,
+    recipeProfiles:Array.isArray(merged.recipeProfiles)?merged.recipeProfiles:[],
     ipm:merged.ipm||null,
     notes:{summary:stripHtml(crop.cn),clayTips:(crop.tips||[]).map(stripHtml).filter(t=>/clay|drain|wet feet|compost|raised bed/i.test(t)).slice(0,2)}
   };
@@ -521,7 +533,7 @@ function getRecipeTargetsFromUi(){
     curryPots:parseNum(document.getElementById('rtCurryPots')?.value,0,500)
   };
 }
-function getRecipeDemandBoost(crop){
+function getRecipeDemandBoostLegacy(crop){
   const targets=APP_STATE.recipeTargets||RECIPE_TARGET_DEFAULTS;
   let plants=0;
   const reasons=[];
@@ -536,7 +548,31 @@ function getRecipeDemandBoost(crop){
       }
     }
   }
-  return {plantsRaw:plants,plantsRounded:Math.ceil(plants),reasons};
+  return {plantsRaw:plants,plantsRounded:Math.ceil(plants),reasons,mode:'legacy'};
+}
+function getRecipeDemandBoost(crop){
+  const sc=getStructuredCrop(crop);
+  const targets=APP_STATE.recipeTargets||RECIPE_TARGET_DEFAULTS;
+  const profiles=Array.isArray(sc?.recipeProfiles)?sc.recipeProfiles:[];
+  if(!profiles.length) return getRecipeDemandBoostLegacy(crop);
+  let plants=0;
+  const reasons=[];
+  const profileHits=[];
+  for(const profile of profiles){
+    const targetKey=Object.keys(RECIPE_TARGET_TO_PROFILE).find(k=>RECIPE_TARGET_TO_PROFILE[k]===profile.recipe);
+    if(!targetKey)continue;
+    const units=Number(targets[targetKey]||0);
+    if(!units)continue;
+    const unitsPerPlant=Math.max(.01,Number(profile.unitsPerPlant)||0);
+    if(!unitsPerPlant)continue;
+    const add=units/unitsPerPlant;
+    plants+=add;
+    profileHits.push({recipe:profile.recipe,units,unitsPerPlant,add});
+    const pref=(profile.preferredVarieties||[]).slice(0,2).join(' / ');
+    reasons.push(`${profile.recipe}: +${add.toFixed(1)} (${units} target units${pref?`; prefer ${pref}`:''})`);
+  }
+  if(!profileHits.length) return getRecipeDemandBoostLegacy(crop);
+  return {plantsRaw:plants,plantsRounded:Math.ceil(plants),reasons,mode:'profile',profileHits};
 }
 function renderRecipeDemandSummary(){
   const el=document.getElementById('recipeDemandSummary');
@@ -547,8 +583,7 @@ function renderRecipeDemandSummary(){
     el.textContent='Recipe target boosts are off (all set to 0).';
     return;
   }
-  const labels={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
-  el.innerHTML=`Recipe demand enabled: ${active.map(([k,v])=>`<strong>${v}</strong> ${labels[k]}`).join(' · ')}. Planner adds crop-specific plant boosts for relevant ingredients.`;
+  el.innerHTML=`Recipe demand enabled: ${active.map(([k,v])=>`<strong>${v}</strong> ${RECIPE_TARGET_LABELS[k]||k}`).join(' · ')}. Planner uses crop recipe profiles when available (with legacy fallback matching for the rest).`;
 }
 function estimateCropPlan(crop,people=APP_STATE.peopleCount,mode=APP_STATE.plannerMode){
   const sc=getStructuredCrop(crop),hp=sc?.householdPlanning,sp=sc?.spacing;
@@ -566,7 +601,67 @@ function estimateCropPlan(crop,people=APP_STATE.peopleCount,mode=APP_STATE.plann
   let areaSqFt=null;
   if(sp?.squareFootQty) areaSqFt=+(recPlants/Math.max(0.05,sp.squareFootQty)).toFixed(1);
   else if(sp?.inRowIn&&sp?.betweenRowsIn) areaSqFt=+((recPlants*(sp.inRowIn*sp.betweenRowsIn))/144).toFixed(1);
-  return {minPlants,maxPlants,recPlants,areaSqFt,success,rangeBase:rawRange,spacingText:fmtSpacing(sp),recipeBoost,baseRec};
+  const areaPerPlant=areaSqFt&&recPlants?+(areaSqFt/recPlants).toFixed(3):null;
+  return {minPlants,maxPlants,recPlants,areaSqFt,areaPerPlant,success,rangeBase:rawRange,spacingText:fmtSpacing(sp),recipeBoost,baseRec};
+}
+function getRecipeTargetWeight(){
+  const t=APP_STATE.recipeTargets||RECIPE_TARGET_DEFAULTS;
+  return Object.values(t).reduce((a,b)=>a+(Number(b)||0),0);
+}
+function computePlannerPriorityScore(row){
+  const {crop,plan,sc}=row;
+  let score=0;
+  const priorityMode=APP_STATE.plannerPriorityMode||'balanced';
+  const hasRecipeBoost=plan.recipeBoost?.plantsRounded||0;
+  if(priorityMode==='recipe_first') score+=hasRecipeBoost*8;
+  if(priorityMode==='fresh_first') score+=Math.max(0,(plan.baseRec||0)-(plan.recipeBoost?.plantsRounded||0))*.35;
+  if(priorityMode==='balanced') score+=hasRecipeBoost*5 + (plan.baseRec||0)*.2;
+  if(APP_STATE.selectedCropIndex!=null && V[APP_STATE.selectedCropIndex]?.name===crop.name) score+=20;
+  if(sc?.preservation?.bestUses?.includes('storage') || sc?.preservation?.bestUses?.includes('curing')) score+=3;
+  if(crop.season==='cool' && (CAL_MONTH<=3 || CAL_MONTH>=7)) score+=2;
+  if(crop.season==='warm' && CAL_MONTH>=3 && CAL_MONTH<=8) score+=2;
+  if(plan.areaSqFt && plan.areaSqFt>0) score+=Math.max(0,6-Math.min(6,plan.areaSqFt/10));
+  if(getRecipeTargetWeight()===0 && priorityMode==='recipe_first') score+=0;
+  return +score.toFixed(2);
+}
+function allocatePlannerRows(rows){
+  const budget=Math.max(0,Number(APP_STATE.bedSpaceLimit)||0);
+  if(!budget) return {rows:rows.map(r=>({...r,allocation:{status:'fit',assignedSqFt:r.plan.areaSqFt,assignedPlants:r.plan.recPlants,remainingAfter:null}})),budgetSqFt:0,usedSqFt:rows.reduce((s,r)=>s+(r.plan.areaSqFt||0),0),limited:false};
+  let remaining=budget;
+  let used=0;
+  const withAlloc=rows.map(r=>{
+    const area=r.plan.areaSqFt;
+    if(!area || area<=0) return {...r,allocation:{status:'n/a',assignedSqFt:null,assignedPlants:r.plan.recPlants,remainingAfter:+remaining.toFixed(1)}};
+    if(area<=remaining+1e-9){
+      remaining=+(remaining-area).toFixed(1);
+      used=+(used+area).toFixed(1);
+      return {...r,allocation:{status:'fit',assignedSqFt:area,assignedPlants:r.plan.recPlants,remainingAfter:remaining}};
+    }
+    const areaPerPlant=r.plan.areaPerPlant||null;
+    if(areaPerPlant && remaining>=Math.max(.25,areaPerPlant)){
+      const partialPlants=Math.max(1,Math.floor(remaining/areaPerPlant));
+      const partialSqFt=+(partialPlants*areaPerPlant).toFixed(1);
+      const cappedSqFt=Math.min(remaining,partialSqFt);
+      used=+(used+cappedSqFt).toFixed(1);
+      remaining=+Math.max(0,remaining-cappedSqFt).toFixed(1);
+      return {...r,allocation:{status:'partial',assignedSqFt:cappedSqFt,assignedPlants:partialPlants,remainingAfter:remaining}};
+    }
+    return {...r,allocation:{status:'defer',assignedSqFt:0,assignedPlants:0,remainingAfter:+remaining.toFixed(1)}};
+  });
+  return {rows:withAlloc,budgetSqFt:budget,usedSqFt:used,remainingSqFt:+remaining.toFixed(1),limited:true};
+}
+function plannerStatusLabel(allocation,plan){
+  if(!allocation) return 'N/A';
+  if(allocation.status==='fit') return 'Fits';
+  if(allocation.status==='n/a') return 'No area model';
+  if(allocation.status==='partial') return `Partial (${allocation.assignedPlants}/${plan.recPlants})`;
+  if(allocation.status==='defer') return 'Deferred';
+  return allocation.status;
+}
+function getPlannerAllocationForCrop(cropName){
+  if(!cropName) return null;
+  const rows=allocatePlannerRows(getPlannerRows()).rows;
+  return rows.find(r=>r.crop?.name===cropName)||null;
 }
 function getPlannerRows(){
   const q=(APP_STATE.plannerSearch||'').toLowerCase();
@@ -574,35 +669,52 @@ function getPlannerRows(){
     const plan=estimateCropPlan(crop);
     if(!plan)return null;
     if(q && !crop.name.toLowerCase().includes(q) && !crop.cat.toLowerCase().includes(q)) return null;
-    return {crop,plan,sc:getStructuredCrop(crop)};
-  }).filter(Boolean).sort((a,b)=>a.crop.cat.localeCompare(b.crop.cat)||a.crop.name.localeCompare(b.crop.name));
+    const sc=getStructuredCrop(crop);
+    const row={crop,plan,sc};
+    row.priorityScore=computePlannerPriorityScore(row);
+    return row;
+  }).filter(Boolean).sort((a,b)=>(b.priorityScore||0)-(a.priorityScore||0)||a.crop.cat.localeCompare(b.crop.cat)||a.crop.name.localeCompare(b.crop.name));
 }
 function renderPeoplePlanner(){
   const body=document.getElementById('plannerTableBody'),sum=document.getElementById('plannerSummary');
   if(!body||!sum)return;
-  const rows=getPlannerRows();
+  const rankedRows=getPlannerRows();
   renderRecipeDemandSummary();
-  if(!rows.length){
-    body.innerHTML='<tr><td colspan="5">No crops match the current filter.</td></tr>';
+  if(!rankedRows.length){
+    body.innerHTML='<tr><td colspan="6">No crops match the current filter.</td></tr>';
     sum.textContent='No planner rows matched your filter.';
     return;
   }
+  const allocation=allocatePlannerRows(rankedRows);
+  const rows=allocation.rows;
   let totalSqFt=0,totalRecipePlants=0;
-  body.innerHTML=rows.map(({crop,plan,sc})=>{
+  const selected=getSelectedCrop();
+  body.innerHTML=rows.map(({crop,plan,sc,priorityScore,allocation:alloc})=>{
     totalSqFt+=plan.areaSqFt||0;
     totalRecipePlants+=plan.recipeBoost?.plantsRounded||0;
     const note=[`Range ${plan.minPlants}-${plan.maxPlants}`,`Success ${(plan.success*100).toFixed(0)}%`];
-    if(plan.recipeBoost?.plantsRounded)note.push(`Recipe +${plan.recipeBoost.plantsRounded}`);
-    return `<tr><td><div><strong>${crop.name}</strong></div><div class="pt-chip">${crop.cat}</div></td><td>${plan.spacingText}</td><td><strong>${plan.recPlants}</strong></td><td>${plan.areaSqFt??'N/A'}</td><td>${note.join(' · ')}</td></tr>`;
+    if(plan.recipeBoost?.plantsRounded)note.push(`Recipe +${plan.recipeBoost.plantsRounded}${plan.recipeBoost.mode==='profile'?' (profile)':''}`);
+    if(sc.recipeProfiles?.length) note.push(`Recipes: ${sc.recipeProfiles.map(p=>p.recipe).join(', ')}`);
+    note.push(`Priority ${selected?.name===crop.name?'selected + ':''}${Number(priorityScore||0).toFixed(1)}`);
+    const plantsCell=alloc?.status==='partial'?`<strong>${plan.recPlants}</strong><br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedPlants}</span>`:`<strong>${plan.recPlants}</strong>`;
+    const sqFtCell=alloc?.status==='partial'?`${plan.areaSqFt??'N/A'}<br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedSqFt}</span>`:(plan.areaSqFt??'N/A');
+    return `<tr><td><div><strong>${crop.name}</strong></div><div class="pt-chip">${crop.cat}</div></td><td>${plan.spacingText}</td><td>${plantsCell}</td><td>${sqFtCell}</td><td>${plannerStatusLabel(alloc,plan)}</td><td>${note.filter(Boolean).join(' · ')}</td></tr>`;
   }).join('');
-  sum.innerHTML=`Planner rows: <strong>${rows.length}</strong> · Household: <strong>${APP_STATE.peopleCount}</strong> · Goal: <strong>${APP_STATE.plannerMode}</strong> · Recipe boost: <strong>+${totalRecipePlants}</strong> plants · Estimated bed footprint: <strong>${totalSqFt.toFixed(1)} sq ft</strong>`;
+  const limitTxt=APP_STATE.bedSpaceLimit>0
+    ? ` · Bed limit: <strong>${APP_STATE.bedSpaceLimit.toFixed(0)} sq ft</strong> · Fit: <strong>${allocation.usedSqFt?.toFixed?allocation.usedSqFt.toFixed(1):allocation.usedSqFt} sq ft</strong>${allocation.remainingSqFt!=null?` · Remaining: <strong>${allocation.remainingSqFt.toFixed(1)} sq ft</strong>`:''}`
+    : '';
+  sum.innerHTML=`Planner rows: <strong>${rows.length}</strong> · Household: <strong>${APP_STATE.peopleCount}</strong> · Goal: <strong>${APP_STATE.plannerMode}</strong> · Space priority: <strong>${(APP_STATE.plannerPriorityMode||'balanced').replace('_',' ')}</strong> · Recipe boost: <strong>+${totalRecipePlants}</strong> plants · Estimated bed footprint: <strong>${totalSqFt.toFixed(1)} sq ft</strong>${limitTxt}`;
 }
 function handlePlannerControls(){
   const people=document.getElementById('peopleCountInput');
   const mode=document.getElementById('plannerMode');
+  const bedSpace=document.getElementById('bedSpaceLimitInput');
+  const priority=document.getElementById('plannerPriorityMode');
   const search=document.getElementById('plannerSearch');
   if(people)APP_STATE.peopleCount=Math.max(1,Math.min(20,Number(people.value)||2));
   if(mode)APP_STATE.plannerMode=mode.value||'balanced';
+  if(bedSpace)APP_STATE.bedSpaceLimit=Math.max(0,Math.min(5000,Number(bedSpace.value)||0));
+  if(priority)APP_STATE.plannerPriorityMode=priority.value||'balanced';
   if(search)APP_STATE.plannerSearch=search.value||'';
   APP_STATE.recipeTargets=getRecipeTargetsFromUi();
   renderPeoplePlanner();
@@ -615,14 +727,20 @@ function buildStructuredPanelHtml(crop){
   const pests=(sc.ipm?.commonPests||[]).slice(0,5).map(p=>`<span>${p}</span>`).join('');
   const diseases=(sc.ipm?.commonDiseases||[]).slice(0,5).map(d=>`<span>${d}</span>`).join('');
   const preservation=(sc.preservation?.bestUses||[]).slice(0,6).map(u=>`<span>${u}</span>`).join('');
+  const recipeProfiles=(sc.recipeProfiles||[]).slice(0,4).map(p=>{
+    const pref=(p.preferredVarieties||[]).slice(0,2).join(' / ');
+    return `<div class="tdx-item"><b>${escapeHtml(p.recipe)} Profile</b>~1 plant / ${escapeHtml(String(p.unitsPerPlant))} target units${pref?`<br><span style="color:#6b7b6b">Prefer: ${escapeHtml(pref)}</span>`:''}</div>`;
+  }).join('');
   const clay=(sc.notes?.clayTips||[]).map(t=>`<div class="tdx-item"><b>Clay Note</b>${t}</div>`).join('');
   const plannerBox=plan?`<div class="tdx-item"><b>People Planner (${APP_STATE.peopleCount}, ${APP_STATE.plannerMode})</b>${plan.recPlants} plants (~${plan.areaSqFt??'N/A'} sq ft)<br><span style="color:#6b7b6b">Range ${plan.minPlants}-${plan.maxPlants}${plan.recipeBoost?.plantsRounded?` · Recipe +${plan.recipeBoost.plantsRounded}`:''}</span></div>`:'';
-  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${clay}</div>${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
+  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${recipeProfiles}${clay}</div>${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
 }
 function getSelectedCrop(){return Number.isInteger(APP_STATE.selectedCropIndex)?V[APP_STATE.selectedCropIndex]||null:null}
 function getAssistantConfigFromUi(){
   return {
     mode:document.getElementById('mgMode')?.value||'local',
+    proxyEndpoint:(document.getElementById('mgProxyEndpoint')?.value||'').trim()||ASSISTANT_CONFIG_DEFAULTS.proxyEndpoint,
+    proxyToken:(document.getElementById('mgProxyToken')?.value||'').trim(),
     endpoint:(document.getElementById('mgEndpoint')?.value||'').trim(),
     model:(document.getElementById('mgModel')?.value||'').trim()||ASSISTANT_CONFIG_DEFAULTS.model,
     apiKey:(document.getElementById('mgApiKey')?.value||'').trim()
@@ -630,15 +748,21 @@ function getAssistantConfigFromUi(){
 }
 function syncAssistantConfigToUi(){
   const c=APP_STATE.assistantConfig||ASSISTANT_CONFIG_DEFAULTS;
-  const mode=document.getElementById('mgMode'), endpoint=document.getElementById('mgEndpoint'), model=document.getElementById('mgModel'), key=document.getElementById('mgApiKey');
+  const mode=document.getElementById('mgMode'), proxyEndpoint=document.getElementById('mgProxyEndpoint'), proxyToken=document.getElementById('mgProxyToken'), endpoint=document.getElementById('mgEndpoint'), model=document.getElementById('mgModel'), key=document.getElementById('mgApiKey');
   if(mode)mode.value=c.mode||'local';
+  if(proxyEndpoint)proxyEndpoint.value=c.proxyEndpoint||ASSISTANT_CONFIG_DEFAULTS.proxyEndpoint||'';
+  if(proxyToken)proxyToken.value=c.proxyToken||'';
   if(endpoint)endpoint.value=c.endpoint||'';
   if(model)model.value=c.model||ASSISTANT_CONFIG_DEFAULTS.model;
   if(key)key.value=c.apiKey||'';
 }
 function assistantConfigSummary(){
   const c=APP_STATE.assistantConfig||ASSISTANT_CONFIG_DEFAULTS;
-  if(c.mode!=='api') return 'Using local fallback responses.';
+  if(c.mode==='local') return 'Using local fallback responses.';
+  if(c.mode==='proxy'){
+    if(!c.proxyEndpoint) return 'Proxy mode selected, but proxy URL is missing. Falling back locally.';
+    return `Proxy mode ready (${c.model||ASSISTANT_CONFIG_DEFAULTS.model}) → ${c.proxyEndpoint}`;
+  }
   if(!c.endpoint||!c.model||!c.apiKey) return 'API mode selected, but endpoint/model/key are incomplete. Falling back locally.';
   return `API mode ready (${c.model}) → ${c.endpoint}`;
 }
@@ -710,9 +834,34 @@ async function callRemoteMasterGardener(question,context){
   if(!content) throw new Error('Remote AI response did not contain text content');
   return {text:String(content),source:'remote'};
 }
+async function callProxyMasterGardener(question,context){
+  const cfg=APP_STATE.assistantConfig||ASSISTANT_CONFIG_DEFAULTS;
+  if(cfg.mode!=='proxy' || !cfg.proxyEndpoint) throw new Error('Proxy mode not configured');
+  const res=await fetch(cfg.proxyEndpoint,{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      ...(cfg.proxyToken?{'X-Garden-Proxy-Token':cfg.proxyToken}:{})
+    },
+    body:JSON.stringify({
+      question,
+      context,
+      model:cfg.model||ASSISTANT_CONFIG_DEFAULTS.model,
+      systemPrompt:buildAssistantSystemPrompt()
+    })
+  });
+  if(!res.ok){
+    const txt=await res.text().catch(()=>'');
+    throw new Error(`Proxy AI error ${res.status}: ${txt.slice(0,200)}`);
+  }
+  const data=await res.json();
+  const content=data?.answer ?? data?.text ?? data?.content;
+  if(!content) throw new Error('Proxy response did not contain answer text');
+  return {text:String(content),source:'proxy',sources:Array.isArray(data?.sources)?data.sources:null};
+}
 function getSanitizedAssistantConfig(){
   const c=APP_STATE.assistantConfig||ASSISTANT_CONFIG_DEFAULTS;
-  return {...c,apiKey:c.apiKey?'[redacted]':''};
+  return {...c,apiKey:c.apiKey?'[redacted]':'',proxyToken:c.proxyToken?'[redacted]':''};
 }
 function buildAssistantContext(){
   const crop=getSelectedCrop();
@@ -726,7 +875,7 @@ function buildAssistantContext(){
     soilProfile:{type:GARDEN_PROFILE.soilType},
     recipeTargets:{...APP_STATE.recipeTargets},
     uiContext:{activeTab:document.querySelector('.tab.active')?.textContent?.trim()||null,selectedCropId:sc?.id||null,selectedCropName:crop?.name||null},
-    planner:{peopleCount:APP_STATE.peopleCount,mode:APP_STATE.plannerMode,selectedCropRecommendation:plan?{plants:plan.recPlants,areaSqFt:plan.areaSqFt,range:[plan.minPlants,plan.maxPlants],recipeBoost:plan.recipeBoost?.plantsRounded||0}:null},
+    planner:{peopleCount:APP_STATE.peopleCount,mode:APP_STATE.plannerMode,bedSpaceLimitSqFt:APP_STATE.bedSpaceLimit||0,spacePriorityMode:APP_STATE.plannerPriorityMode||'balanced',selectedCropRecommendation:plan?{plants:plan.recPlants,areaSqFt:plan.areaSqFt,range:[plan.minPlants,plan.maxPlants],recipeBoost:plan.recipeBoost?.plantsRounded||0,recipeBoostMode:plan.recipeBoost?.mode||'legacy'}:null},
     timing:crop?{currentMonth:MONTHS[CAL_MONTH],nextMonth:MONTHS[NEXT_MONTH],currentMonthActions:monthActionsForCrop(crop,CAL_MONTH).map(k=>TM[k].t),nextMonthActions:monthActionsForCrop(crop,NEXT_MONTH).map(k=>TM[k].t)}:null,
     structuredCrop:sc?{id:sc.id,spacing:sc.spacing,yield:sc.yield,site:sc.site,preservation:sc.preservation,ipm:sc.ipm}:null,
     assistantMode:getSanitizedAssistantConfig()
@@ -755,7 +904,9 @@ function answerMasterGardener(question){
   }
   if(/\bhow many|how much|people|household|grow for\b/.test(q)){
     if(!plan)return `I don't have a household planning model for ${crop.name} yet.`;
-    return `For ${APP_STATE.peopleCount} people (${APP_STATE.plannerMode}), plan about ${plan.recPlants} ${crop.name} plants (range ${plan.minPlants}-${plan.maxPlants}), needing roughly ${plan.areaSqFt??'N/A'} sq ft. This estimate includes a ${(plan.success*100).toFixed(0)}% success factor buffer${plan.recipeBoost?.plantsRounded?` and a recipe-target boost of +${plan.recipeBoost.plantsRounded} plants`:''}.`;
+    const allocRow=(APP_STATE.bedSpaceLimit||0)>0?getPlannerAllocationForCrop(crop.name):null;
+    const allocMsg=allocRow?.allocation?` With your ${APP_STATE.bedSpaceLimit} sq ft bed limit and ${APP_STATE.plannerPriorityMode.replace('_',' ')} priority, this crop is currently ${plannerStatusLabel(allocRow.allocation,allocRow.plan).toLowerCase()}${allocRow.allocation.status==='partial'?` at ~${allocRow.allocation.assignedPlants} plants` :''}.`:'';
+    return `For ${APP_STATE.peopleCount} people (${APP_STATE.plannerMode}), plan about ${plan.recPlants} ${crop.name} plants (range ${plan.minPlants}-${plan.maxPlants}), needing roughly ${plan.areaSqFt??'N/A'} sq ft. This estimate includes a ${(plan.success*100).toFixed(0)}% success factor buffer${plan.recipeBoost?.plantsRounded?` and a recipe-target boost of +${plan.recipeBoost.plantsRounded} plants`:''}.${allocMsg}`;
   }
   if(/\bpest|bug|disease|blight|mildew|worm|aphid|beetle|rot\b/.test(q)){
     const ipm=sc.ipm||{};
@@ -771,7 +922,8 @@ function answerMasterGardener(question){
   if(/\brecipe|salsa|pickle|pesto|curry|preserv/.test(q)){
     const uses=(sc.preservation?.bestUses||[]).join(', ')||'no structured preservation tags yet';
     const rb=plan?.recipeBoost?.plantsRounded||0;
-    return `${crop.name} preservation/recipe tags: ${uses}. Current recipe targets add ${rb} plants to this crop's household recommendation${plan?.recipeBoost?.reasons?.length?` (${plan.recipeBoost.reasons.slice(0,3).join('; ')})`:''}.`;
+    const prof=(sc.recipeProfiles||[]).map(p=>`${p.recipe} (~1 plant per ${p.unitsPerPlant} target units)`).slice(0,3).join('; ');
+    return `${crop.name} preservation/recipe tags: ${uses}. Current recipe targets add ${rb} plants to this crop's household recommendation${plan?.recipeBoost?.reasons?.length?` (${plan.recipeBoost.reasons.slice(0,3).join('; ')})`:''}.${prof?` Structured recipe profiles: ${prof}.`:''}`;
   }
   return `For ${crop.name}, I can help with timing (${MONTHS[CAL_MONTH]}: ${timingNow}), spacing (${fmtSpacing(sc.spacing)}), household counts (${plan?`${plan.recPlants} plants for ${APP_STATE.peopleCount} people`: 'model pending'}), and IPM focus (${(sc.ipm?.commonPests||[]).slice(0,2).join(', ')||'N/A'} / ${(sc.ipm?.commonDiseases||[]).slice(0,2).join(', ')||'N/A'}).`;
 }
@@ -785,7 +937,12 @@ async function askMasterGardener(){
   let answer='',sources=[],statusMsg='';
   try{
     const cfg=APP_STATE.assistantConfig||ASSISTANT_CONFIG_DEFAULTS;
-    if(cfg.mode==='api' && cfg.endpoint && cfg.model && cfg.apiKey){
+    if(cfg.mode==='proxy' && cfg.proxyEndpoint){
+      const proxied=await callProxyMasterGardener(q,context);
+      answer=proxied.text;
+      sources=proxied.sources?.length?proxied.sources:['Proxy AI','Garden Context Payload','Your Garden Data'];
+      statusMsg=`Proxy AI response received (${cfg.model||ASSISTANT_CONFIG_DEFAULTS.model}).`;
+    }else if(cfg.mode==='api' && cfg.endpoint && cfg.model && cfg.apiKey){
       const remote=await callRemoteMasterGardener(q,context);
       answer=remote.text;
       sources=['Remote AI', 'Garden Context Payload', 'Your Garden Data'];

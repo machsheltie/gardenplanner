@@ -88,3 +88,7 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Recipe target inputs added to People Planner (salsa/pickles/pesto/curry)
 - [x] Recipe targets integrated into plant count recommendations
 - [x] Master Gardener API adapter added (OpenAI-compatible chat endpoint) with local fallback
+- [x] Per-crop `recipeProfiles` metadata added for key crops/herbs and used by planner (legacy recipe matching retained as fallback)
+- [x] People Planner bed-space constraint input (`available sq ft`) with priority-based fit/partial/defer allocation
+- [x] Master Gardener proxy mode support added (safer than browser-stored API keys)
+- [x] Backend proxy contract/setup documented for future server hookup
