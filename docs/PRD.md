@@ -101,3 +101,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Row-lane drag/drop placement preferences added (drop crops onto specific rows in row/trellis layout)
 - [x] Row occupancy/rotation warnings added using per-row previous-family history selectors
 - [x] Season/year row-history presets added (save/load/delete presets + previous-year quick load)
+- [x] Season archive view added (yield notes + pest/disease pressure + archived row-history snapshot for rotation planning)

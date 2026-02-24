@@ -283,6 +283,24 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <button type="button" onclick="deleteSelectedRowHistoryPreset()">Delete Preset</button>
 </div>
 <div class="pt-bed-summary" id="rowHistoryPresetStatus">Save a season/year snapshot of row history, then load it next season.</div>
+<div class="pt-mini-ctrls">
+<label>Archive Name <input id="seasonArchiveName" type="text" maxlength="48" placeholder="2025 season review" oninput="handleSeasonArchiveUiChange()"></label>
+<label>Season Archive <select id="seasonArchiveSelect" onchange="handleSeasonArchiveSelectionChange()"><option value="">(none)</option></select></label>
+<label>Pest Pressure<select id="seasonArchivePestPressure" onchange="handleSeasonArchiveUiChange()"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label>
+<label>Disease Pressure<select id="seasonArchiveDiseasePressure" onchange="handleSeasonArchiveUiChange()"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label>
+</div>
+<div class="pt-mini-ctrls">
+<label>Yield Summary<input id="seasonArchiveYieldSummary" type="text" maxlength="220" placeholder="Tomatoes strong, peppers moderate, cucumbers struggled..."></label>
+<label style="grid-column:1/-1">Season Notes<textarea id="seasonArchiveNotes" rows="3" maxlength="1200" placeholder="What worked, what failed, pest timing, variety winners, soil notes..." oninput="handleSeasonArchiveUiChange()"></textarea></label>
+</div>
+<div class="pt-bed-actions">
+<button type="button" onclick="saveSeasonArchive()">Save Season Archive</button>
+<button type="button" onclick="loadSelectedSeasonArchiveToForm()">Load Archive Notes</button>
+<button type="button" onclick="applySelectedSeasonArchiveRowHistory()">Apply Archive Row History</button>
+<button type="button" onclick="deleteSelectedSeasonArchive()">Delete Archive</button>
+</div>
+<div class="pt-bed-summary" id="seasonArchiveStatus">Archive end-of-season outcomes so rotation decisions are backed by real results.</div>
+<div class="pt-bed-alloc" id="seasonArchiveSummary">No season archives saved yet.</div>
 <div id="bedsList" class="pt-beds-list"></div>
 <div class="pt-bed-actions">
 <button type="button" onclick="addBedRow()">Add Bed</button>
@@ -464,9 +482,9 @@ const DEFAULT_BEDS=[
   {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good',layoutMode:'rows',rowSpacingIn:12,trellisSide:'south',trellisBandFt:1}
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
-const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
+const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
-const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear'};
+const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
 const ROTATION_FAMILY_LABELS={
@@ -758,6 +776,26 @@ function normalizeRowHistoryPresets(presets,beds=getActiveBeds()){
   }
   return out;
 }
+function normalizeSeasonArchives(archives,beds=getActiveBeds()){
+  const src=(archives&&typeof archives==='object')?archives:{};
+  const out={};
+  for(const [rawName,val] of Object.entries(src)){
+    const name=String(rawName||'').trim().slice(0,48);
+    if(!name || !val || typeof val!=='object') continue;
+    out[name]={
+      name,
+      year:Number.isFinite(Number(val.year))?Math.max(2020,Math.min(2100,Math.trunc(Number(val.year)))):null,
+      updatedAt:val.updatedAt?String(val.updatedAt):new Date().toISOString(),
+      pestPressure:['low','medium','high'].includes(val.pestPressure)?val.pestPressure:'medium',
+      diseasePressure:['low','medium','high'].includes(val.diseasePressure)?val.diseasePressure:'medium',
+      yieldSummary:String(val.yieldSummary||'').slice(0,220),
+      notes:String(val.notes||'').slice(0,1200),
+      linkedRowHistoryPreset:String(val.linkedRowHistoryPreset||'').slice(0,40),
+      rowHistorySnapshot:normalizeRowHistoryPresets({tmp:{name:'tmp',year:val.year,updatedAt:val.updatedAt,snapshot:val.rowHistorySnapshot}},beds).tmp?.snapshot||[]
+    };
+  }
+  return out;
+}
 function currentRowHistorySnapshot(){
   return getActiveBeds().map(b=>({
     bedId:b.id,
@@ -776,6 +814,18 @@ function rowHistoryPresetNameValue(){
 function setRowHistoryPresetStatus(msg){
   const el=document.getElementById('rowHistoryPresetStatus');
   if(el) el.textContent=msg||'Save a season/year snapshot of row history, then load it next season.';
+}
+function setSeasonArchiveStatus(msg){
+  const el=document.getElementById('seasonArchiveStatus');
+  if(el) el.textContent=msg||'Archive end-of-season outcomes so rotation decisions are backed by real results.';
+}
+function seasonArchiveSelectValue(){
+  return String(document.getElementById('seasonArchiveSelect')?.value||'').trim();
+}
+function seasonArchiveNameValue(){
+  const raw=String(document.getElementById('seasonArchiveName')?.value||'').trim();
+  if(raw) return raw.slice(0,48);
+  return `${Math.max(2020,Math.min(2100,Number(APP_STATE.planningYear)||new Date().getFullYear()))-1} season review`;
 }
 function syncPlanningYearFromUi(){
   const inp=document.getElementById('rowHistoryPlanYear');
@@ -888,6 +938,152 @@ function deleteSelectedRowHistoryPreset(){
   persistBedAndWeatherState();
   renderRowHistoryPresetControls(`Deleted preset "${name}".`);
 }
+function seasonArchiveFormDataFromUi(){
+  return {
+    pestPressure:String(document.getElementById('seasonArchivePestPressure')?.value||'medium'),
+    diseasePressure:String(document.getElementById('seasonArchiveDiseasePressure')?.value||'medium'),
+    yieldSummary:String(document.getElementById('seasonArchiveYieldSummary')?.value||'').trim(),
+    notes:String(document.getElementById('seasonArchiveNotes')?.value||'').trim()
+  };
+}
+function syncSeasonArchiveForm(entry=null){
+  const e=entry||null;
+  const values={
+    seasonArchivePestPressure:e?.pestPressure||'medium',
+    seasonArchiveDiseasePressure:e?.diseasePressure||'medium',
+    seasonArchiveYieldSummary:e?.yieldSummary||'',
+    seasonArchiveNotes:e?.notes||''
+  };
+  for(const [id,val] of Object.entries(values)){ const el=document.getElementById(id); if(el) el.value=String(val); }
+}
+function getSeasonArchiveSummaries(limit=4){
+  return Object.values(APP_STATE.seasonArchives||{})
+    .sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0) || String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))
+    .slice(0,Math.max(0,limit|0))
+    .map(a=>({
+      name:a.name,
+      year:a.year,
+      pestPressure:a.pestPressure,
+      diseasePressure:a.diseasePressure,
+      yieldSummary:a.yieldSummary,
+      notesPreview:(a.notes||'').slice(0,180),
+      linkedRowHistoryPreset:a.linkedRowHistoryPreset||'',
+      bedSnapshots:(a.rowHistorySnapshot||[]).length,
+      updatedAt:a.updatedAt
+    }));
+}
+function renderSeasonArchiveSummary(){
+  const el=document.getElementById('seasonArchiveSummary');
+  if(!el) return;
+  const entries=Object.values(APP_STATE.seasonArchives||{}).sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0) || String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
+  if(!entries.length){
+    el.innerHTML='No season archives saved yet.';
+    return;
+  }
+  el.innerHTML=entries.slice(0,4).map(a=>{
+    const y=a.year?`<strong>${a.year}</strong>`:'<strong>Season</strong>';
+    const rowCt=(a.rowHistorySnapshot||[]).length;
+    const yld=a.yieldSummary?escapeHtml(a.yieldSummary):'No yield summary yet';
+    return `<div class="pt-ba-item">${y} · ${escapeHtml(a.name)} · Pests ${escapeHtml(a.pestPressure)} · Disease ${escapeHtml(a.diseasePressure)} · ${rowCt} bed snapshots<br><span style="color:#6b7b6b">${yld}</span></div>`;
+  }).join('');
+}
+function renderSeasonArchiveControls(statusMsg=''){
+  const select=document.getElementById('seasonArchiveSelect');
+  const nameInput=document.getElementById('seasonArchiveName');
+  if(!select) return;
+  const current=seasonArchiveSelectValue();
+  const names=Object.keys(APP_STATE.seasonArchives||{}).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  select.innerHTML=`<option value="">(none)</option>`+names.map(name=>{
+    const a=APP_STATE.seasonArchives[name];
+    return `<option value="${escapeHtml(name)}"${name===current?' selected':''}>${escapeHtml(name)}${a?.year?` (${a.year})`:''}</option>`;
+  }).join('');
+  if(current && !APP_STATE.seasonArchives[current]) select.value='';
+  if(nameInput && !nameInput.value.trim()) nameInput.value=`${APP_STATE.planningYear-1} season review`;
+  renderSeasonArchiveSummary();
+  if(statusMsg) setSeasonArchiveStatus(statusMsg);
+}
+function handleSeasonArchiveUiChange(){
+  syncPlanningYearFromUi();
+  safeLocalStorageSet(LS_KEYS.planningYear,String(APP_STATE.planningYear));
+}
+function handleSeasonArchiveSelectionChange(){
+  const name=seasonArchiveSelectValue();
+  const a=APP_STATE.seasonArchives?.[name];
+  const nameInput=document.getElementById('seasonArchiveName');
+  if(name && nameInput) nameInput.value=name;
+  if(a){
+    syncSeasonArchiveForm(a);
+    const when=a.updatedAt?new Date(a.updatedAt).toLocaleString():null;
+    setSeasonArchiveStatus(`Selected archive "${name}"${a.year?` (${a.year})`:''}${when?` · saved ${when}`:''}.`);
+  }else{
+    setSeasonArchiveStatus();
+  }
+}
+function saveSeasonArchive(){
+  updateBedsFromUi();
+  syncPlanningYearFromUi();
+  const name=seasonArchiveNameValue();
+  if(!name){ setSeasonArchiveStatus('Enter an archive name first.'); return; }
+  const form=seasonArchiveFormDataFromUi();
+  const linkedPreset=rowHistoryPresetSelectValue()||'';
+  APP_STATE.seasonArchives=normalizeSeasonArchives({
+    ...(APP_STATE.seasonArchives||{}),
+    [name]:{
+      name,
+      year:APP_STATE.planningYear-1,
+      updatedAt:new Date().toISOString(),
+      ...form,
+      linkedRowHistoryPreset:linkedPreset,
+      rowHistorySnapshot:currentRowHistorySnapshot()
+    }
+  },APP_STATE.beds);
+  persistBedAndWeatherState();
+  renderSeasonArchiveControls(`Saved season archive "${name}" (${APP_STATE.planningYear-1}).`);
+}
+function applyRowHistorySnapshotToBeds(snapshot,label='snapshot'){
+  const rows=Array.isArray(snapshot)?snapshot:[];
+  const byId=new Map(rows.map(x=>[x.bedId,x]));
+  const byName=new Map(rows.map(x=>[String(x.bedName||'').toLowerCase(),x]));
+  APP_STATE.beds=normalizeBeds((APP_STATE.beds||[]).map(b=>{
+    const snap=byId.get(b.id)||byName.get(String(b.name||'').toLowerCase());
+    if(!snap) return b;
+    const rowCount=getBedRowSettings(b).rowCount;
+    return {...b,rowHistory:normalizeBedRowHistory(snap.rowHistory,rowCount)};
+  }));
+  renderBedsEditor();
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+  const appliedCount=(APP_STATE.beds||[]).filter(b=>Boolean(byId.get(b.id)||byName.get(String(b.name||'').toLowerCase()))).length;
+  return appliedCount;
+}
+function loadSelectedSeasonArchiveToForm(){
+  const name=seasonArchiveSelectValue();
+  if(!name){ setSeasonArchiveStatus('Select an archive to load into the notes form.'); return; }
+  const a=APP_STATE.seasonArchives?.[name];
+  if(!a){ setSeasonArchiveStatus(`Archive "${name}" not found.`); return; }
+  syncSeasonArchiveForm(a);
+  setSeasonArchiveStatus(`Loaded archive notes for "${name}" into the form. Use Save if you edit it.`);
+}
+function applySelectedSeasonArchiveRowHistory(){
+  updateBedsFromUi();
+  const name=seasonArchiveSelectValue();
+  if(!name){ setSeasonArchiveStatus('Select an archive to apply its row history.'); return; }
+  const a=APP_STATE.seasonArchives?.[name];
+  if(!a){ setSeasonArchiveStatus(`Archive "${name}" not found.`); return; }
+  const applied=applyRowHistorySnapshotToBeds(a.rowHistorySnapshot||[],`archive "${name}"`);
+  renderSeasonArchiveControls(`Applied row history from archive "${name}" to ${applied} bed${applied===1?'':'s'}.`);
+}
+function deleteSelectedSeasonArchive(){
+  const name=seasonArchiveSelectValue();
+  if(!name){ setSeasonArchiveStatus('Select an archive to delete.'); return; }
+  const next={...(APP_STATE.seasonArchives||{})};
+  delete next[name];
+  APP_STATE.seasonArchives=normalizeSeasonArchives(next,APP_STATE.beds);
+  persistBedAndWeatherState();
+  renderSeasonArchiveControls(`Deleted season archive "${name}".`);
+}
 function syncWeatherUiFromState(){
   const w=normalizeWeatherState(APP_STATE.weather);
   APP_STATE.weather=w;
@@ -929,6 +1125,7 @@ function persistBedAndWeatherState(){
   safeLocalStorageSet(LS_KEYS.weather,JSON.stringify(APP_STATE.weather));
   safeLocalStorageSet(LS_KEYS.bedPlacementPrefs,JSON.stringify(APP_STATE.bedPlacementPrefs||{}));
   safeLocalStorageSet(LS_KEYS.rowHistoryPresets,JSON.stringify(APP_STATE.rowHistoryPresets||{}));
+  safeLocalStorageSet(LS_KEYS.seasonArchives,JSON.stringify(APP_STATE.seasonArchives||{}));
   safeLocalStorageSet(LS_KEYS.planningYear,String(APP_STATE.planningYear||new Date().getFullYear()));
 }
 function saveBedAndWeatherState(){
@@ -960,8 +1157,13 @@ function loadBedAndWeatherState(){
     const pyRaw=safeLocalStorageGet(LS_KEYS.planningYear);
     APP_STATE.planningYear=Math.max(2020,Math.min(2100,Number(pyRaw)||new Date().getFullYear()));
   }catch{ APP_STATE.planningYear=new Date().getFullYear(); }
+  try{
+    const archivesRaw=safeLocalStorageGet(LS_KEYS.seasonArchives);
+    APP_STATE.seasonArchives=archivesRaw?normalizeSeasonArchives(JSON.parse(archivesRaw),APP_STATE.beds):{};
+  }catch{ APP_STATE.seasonArchives={}; }
   renderBedsEditor();
   renderRowHistoryPresetControls();
+  renderSeasonArchiveControls();
   syncWeatherUiFromState();
 }
 function addBedRow(){
@@ -1015,6 +1217,7 @@ function renderBedsEditor(){
   </div>`).join('');
   updateBedsSummary();
   renderRowHistoryPresetControls();
+  renderSeasonArchiveControls();
 }
 function updateBedsFromUi(){
   const rows=[...document.querySelectorAll('#bedsList > [data-bed-id]')];
@@ -1866,6 +2069,7 @@ function buildAssistantContext(){
     uiContext:{activeTab:document.querySelector('.tab.active')?.textContent?.trim()||null,selectedCropId:sc?.id||null,selectedCropName:crop?.name||null},
     planner:{peopleCount:APP_STATE.peopleCount,mode:APP_STATE.plannerMode,bedSpaceLimitSqFt:APP_STATE.bedSpaceLimit||0,spacePriorityMode:APP_STATE.plannerPriorityMode||'balanced',selectedCropRecommendation:plan?{plants:plan.recPlants,areaSqFt:plan.areaSqFt,range:[plan.minPlants,plan.maxPlants],recipeBoost:plan.recipeBoost?.plantsRounded||0,recipeBoostMode:plan.recipeBoost?.mode||'legacy',allocation:allocation?.allocation?{status:allocation.allocation.status,assignedPlants:allocation.allocation.assignedPlants,assignedSqFt:allocation.allocation.assignedSqFt,beds:(allocation.allocation.bedAssignments||[]).map(a=>({name:a.bedName,plants:a.plants,sqFt:a.sqFt}))}:null}:null},
     rotationWarnings,
+    seasonArchives:getSeasonArchiveSummaries(5),
     timing:crop?{currentMonth:MONTHS[CAL_MONTH],nextMonth:MONTHS[NEXT_MONTH],currentMonthActions:monthActionsForCrop(crop,CAL_MONTH).map(k=>TM[k].t),nextMonthActions:monthActionsForCrop(crop,NEXT_MONTH).map(k=>TM[k].t)}:null,
     structuredCrop:sc?{id:sc.id,spacing:sc.spacing,yield:sc.yield,site:sc.site,preservation:sc.preservation,ipm:sc.ipm,recipeProfiles:sc.recipeProfiles}:null,
     recipeVarietySuggestions:crop?getRecipeVarietySuggestions(crop):[],
@@ -1884,6 +2088,11 @@ function renderAssistantPanel(){
 function answerMasterGardener(question){
   const q=(question||'').toLowerCase().trim();
   const crop=getSelectedCrop();
+  const recentArchives=getSeasonArchiveSummaries(3);
+  if(!crop && /\barchive|last year|yield|what worked|pest pressure|disease pressure|season review\b/.test(q)){
+    if(!recentArchives.length) return `No season archives saved yet. Use the Beds panel to save an end-of-season archive with yield notes, pest pressure, and row history.`;
+    return `Recent season archives: ${recentArchives.map(a=>`${a.year||'Season'} ${a.name} (pests ${a.pestPressure}, disease ${a.diseasePressure}${a.yieldSummary?`; ${a.yieldSummary}`:''})`).join(' | ')}. You can load an archive's row history into the planner from the Beds panel.`;
+  }
   if(!crop){
     return `Select a crop in the “Varieties & Tips” tab first, then ask again. I can answer timing, spacing, pests, clay-soil notes, and household plant counts using your planner data.`;
   }
@@ -1909,7 +2118,13 @@ function answerMasterGardener(question){
       return (alloc?.allocation?.bedAssignments||[]).some(a=>a.bedName===w.bed);
     });
     const assignedRows=(getPlannerAllocationForCrop(crop.name)?.allocation?.bedAssignments||[]).map(a=>a.bedName).join(', ')||'no assigned beds yet';
-    return `Rotation family for ${crop.name}: ${ROTATION_FAMILY_LABELS[fam]||fam}. Assigned beds: ${assignedRows}. ${warns.length?`Current row warnings affecting assigned beds: ${warns.map(w=>`${w.bed} ${w.row}: ${w.warning}`).join(' ')}`:'No row-family repeat warnings right now based on the row history dropdowns in your bed map.'}`;
+    const archNote=recentArchives.length?` Latest archived season: ${recentArchives[0].year||'n/a'} (${recentArchives[0].name}) with pests ${recentArchives[0].pestPressure} and disease ${recentArchives[0].diseasePressure}.`:'';
+    return `Rotation family for ${crop.name}: ${ROTATION_FAMILY_LABELS[fam]||fam}. Assigned beds: ${assignedRows}. ${warns.length?`Current row warnings affecting assigned beds: ${warns.map(w=>`${w.bed} ${w.row}: ${w.warning}`).join(' ')}`:'No row-family repeat warnings right now based on the row history dropdowns in your bed map.'}${archNote}`;
+  }
+  if(/\barchive|last year|season review|yield|what worked\b/.test(q)){
+    if(!recentArchives.length) return `No season archives saved yet. Save one in the Beds panel to track yields, pest/disease pressure, and notes alongside row history.`;
+    const top=recentArchives[0];
+    return `Latest season archive: ${top.year||'Season'} ${top.name}. Pest pressure: ${top.pestPressure}. Disease pressure: ${top.diseasePressure}. Yield summary: ${top.yieldSummary||'not entered'}. ${top.notesPreview?`Notes preview: ${top.notesPreview}`:''} Use “Apply Archive Row History” in Beds to reuse that season’s row history for rotation planning.`;
   }
   if(/\bweather|rain|humid|humidity|mildew risk|can i work|soil too wet\b/.test(q)){
     const wx=normalizeWeatherState(APP_STATE.weather);
