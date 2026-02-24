@@ -92,3 +92,6 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] People Planner bed-space constraint input (`available sq ft`) with priority-based fit/partial/defer allocation
 - [x] Master Gardener proxy mode support added (safer than browser-stored API keys)
 - [x] Backend proxy contract/setup documented for future server hookup
+- [x] Variety-level recipe tagging/suggestions surfaced in crop detail and planner notes (key crops/herbs MVP)
+- [x] Named bed model added (dimensions/sun/drainage) with bed-level crop allocation
+- [x] Manual weather/rain inputs added with clay compaction + mildew/blight risk alerts (planner + assistant context)
