@@ -271,6 +271,18 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 </div>
 <div class="pt-mini-card">
 <h4>Beds (MVP)</h4>
+<div class="pt-mini-ctrls">
+<label>Planning Year <input id="rowHistoryPlanYear" type="number" min="2020" max="2100" value="2026" oninput="handleRowHistoryPresetUiChange()"></label>
+<label>Preset Name <input id="rowHistoryPresetName" type="text" maxlength="40" placeholder="2025 bed state" oninput="handleRowHistoryPresetUiChange()"></label>
+<label>Row History Preset <select id="rowHistoryPresetSelect" onchange="handleRowHistoryPresetSelectionChange()"><option value="">(none)</option></select></label>
+</div>
+<div class="pt-bed-actions">
+<button type="button" onclick="saveRowHistoryPreset()">Save Row History</button>
+<button type="button" onclick="loadSelectedRowHistoryPreset()">Load Selected</button>
+<button type="button" onclick="loadPreviousYearRowHistoryPreset()">Load Prev Year</button>
+<button type="button" onclick="deleteSelectedRowHistoryPreset()">Delete Preset</button>
+</div>
+<div class="pt-bed-summary" id="rowHistoryPresetStatus">Save a season/year snapshot of row history, then load it next season.</div>
 <div id="bedsList" class="pt-beds-list"></div>
 <div class="pt-bed-actions">
 <button type="button" onclick="addBedRow()">Add Bed</button>
@@ -452,9 +464,9 @@ const DEFAULT_BEDS=[
   {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good',layoutMode:'rows',rowSpacingIn:12,trellisSide:'south',trellisBandFt:1}
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
-const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
+const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
-const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs'};
+const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
 const ROTATION_FAMILY_LABELS={
@@ -722,6 +734,160 @@ function handleRowHistoryChange(sel){
   renderSelectedStructuredPanel();
   renderAssistantPanel();
 }
+function normalizeRowHistoryPresets(presets,beds=getActiveBeds()){
+  const src=(presets&&typeof presets==='object')?presets:{};
+  const bedIds=new Set((beds||[]).map(b=>b.id));
+  const out={};
+  for(const [rawName,val] of Object.entries(src)){
+    const name=String(rawName||'').trim().slice(0,40);
+    if(!name || !val || typeof val!=='object') continue;
+    const snapshot=Array.isArray(val.snapshot)?val.snapshot:[];
+    const rows=snapshot.map(item=>{
+      const bedId=String(item?.bedId||'');
+      const bedName=String(item?.bedName||'').slice(0,24);
+      const rowHistory=Array.isArray(item?.rowHistory)?item.rowHistory.map(f=>Object.hasOwn(ROTATION_FAMILY_LABELS,String(f||''))?String(f):'none'):[];
+      if(!bedId && !bedName) return null;
+      return {bedId,bedName,rowHistory};
+    }).filter(Boolean);
+    out[name]={
+      name,
+      year:Number.isFinite(Number(val.year))?Math.max(2020,Math.min(2100,Math.trunc(Number(val.year)))):null,
+      updatedAt:val.updatedAt?String(val.updatedAt):new Date().toISOString(),
+      snapshot:rows.filter(r=>r.bedId?bedIds.size?true:true:true)
+    };
+  }
+  return out;
+}
+function currentRowHistorySnapshot(){
+  return getActiveBeds().map(b=>({
+    bedId:b.id,
+    bedName:b.name,
+    rowHistory:normalizeBedRowHistory(b.rowHistory,getBedRowSettings(b).rowCount)
+  }));
+}
+function rowHistoryPresetSelectValue(){
+  return String(document.getElementById('rowHistoryPresetSelect')?.value||'').trim();
+}
+function rowHistoryPresetNameValue(){
+  const raw=String(document.getElementById('rowHistoryPresetName')?.value||'').trim();
+  if(raw) return raw.slice(0,40);
+  return `${Math.max(2020,Math.min(2100,Number(APP_STATE.planningYear)||new Date().getFullYear()))-1} bed state`;
+}
+function setRowHistoryPresetStatus(msg){
+  const el=document.getElementById('rowHistoryPresetStatus');
+  if(el) el.textContent=msg||'Save a season/year snapshot of row history, then load it next season.';
+}
+function syncPlanningYearFromUi(){
+  const inp=document.getElementById('rowHistoryPlanYear');
+  APP_STATE.planningYear=Math.max(2020,Math.min(2100,Number(inp?.value)||new Date().getFullYear()));
+  if(inp) inp.value=String(APP_STATE.planningYear);
+}
+function renderRowHistoryPresetControls(statusMsg=''){
+  syncPlanningYearFromUi();
+  const select=document.getElementById('rowHistoryPresetSelect');
+  const nameInput=document.getElementById('rowHistoryPresetName');
+  const yearInput=document.getElementById('rowHistoryPlanYear');
+  if(yearInput) yearInput.value=String(APP_STATE.planningYear);
+  if(!select) return;
+  const names=Object.keys(APP_STATE.rowHistoryPresets||{}).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  const current=rowHistoryPresetSelectValue();
+  select.innerHTML=`<option value="">(none)</option>`+names.map(name=>{
+    const p=APP_STATE.rowHistoryPresets[name];
+    const yr=p?.year?` (${p.year})`:'';
+    return `<option value="${escapeHtml(name)}"${name===current?' selected':''}>${escapeHtml(name)}${yr}</option>`;
+  }).join('');
+  if(current && !APP_STATE.rowHistoryPresets[current]) select.value='';
+  if(nameInput && !nameInput.value.trim()){
+    const defaultName=`${APP_STATE.planningYear-1} bed state`;
+    nameInput.value=defaultName;
+  }
+  if(statusMsg) setRowHistoryPresetStatus(statusMsg);
+}
+function handleRowHistoryPresetUiChange(){
+  syncPlanningYearFromUi();
+  safeLocalStorageSet(LS_KEYS.planningYear,String(APP_STATE.planningYear));
+}
+function handleRowHistoryPresetSelectionChange(){
+  const name=rowHistoryPresetSelectValue();
+  const p=APP_STATE.rowHistoryPresets?.[name];
+  const nameInput=document.getElementById('rowHistoryPresetName');
+  if(name && nameInput) nameInput.value=name;
+  if(name && p){
+    const when=p.updatedAt?new Date(p.updatedAt).toLocaleString():null;
+    setRowHistoryPresetStatus(`Selected "${name}"${p.year?` for ${p.year}`:''}${when?` · saved ${when}`:''}.`);
+  }else{
+    setRowHistoryPresetStatus();
+  }
+}
+function saveRowHistoryPreset(){
+  updateBedsFromUi();
+  syncPlanningYearFromUi();
+  const name=rowHistoryPresetNameValue();
+  if(!name){ setRowHistoryPresetStatus('Enter a preset name first.'); return; }
+  APP_STATE.rowHistoryPresets=normalizeRowHistoryPresets({
+    ...(APP_STATE.rowHistoryPresets||{}),
+    [name]:{name,year:APP_STATE.planningYear-1,updatedAt:new Date().toISOString(),snapshot:currentRowHistorySnapshot()}
+  },APP_STATE.beds);
+  persistBedAndWeatherState();
+  renderRowHistoryPresetControls(`Saved row history preset "${name}" (${APP_STATE.planningYear-1}).`);
+}
+function applyRowHistoryPreset(name){
+  const p=APP_STATE.rowHistoryPresets?.[name];
+  if(!p){ setRowHistoryPresetStatus(`Preset "${name}" not found.`); return false; }
+  const byId=new Map((p.snapshot||[]).map(x=>[x.bedId,x]));
+  const byName=new Map((p.snapshot||[]).map(x=>[String(x.bedName||'').toLowerCase(),x]));
+  APP_STATE.beds=normalizeBeds((APP_STATE.beds||[]).map(b=>{
+    const snap=byId.get(b.id)||byName.get(String(b.name||'').toLowerCase());
+    if(!snap) return b;
+    const rowCount=getBedRowSettings(b).rowCount;
+    return {...b,rowHistory:normalizeBedRowHistory(snap.rowHistory,rowCount)};
+  }));
+  renderBedsEditor();
+  persistBedAndWeatherState();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+  const appliedCount=(APP_STATE.beds||[]).filter(b=>{
+    const snap=byId.get(b.id)||byName.get(String(b.name||'').toLowerCase());
+    return Boolean(snap);
+  }).length;
+  renderRowHistoryPresetControls(`Loaded "${name}" into ${appliedCount} bed${appliedCount===1?'':'s'} as previous-row history.`);
+  return true;
+}
+function loadSelectedRowHistoryPreset(){
+  updateBedsFromUi();
+  const name=rowHistoryPresetSelectValue() || rowHistoryPresetNameValue();
+  if(!name){ setRowHistoryPresetStatus('Select a saved preset to load.'); return; }
+  applyRowHistoryPreset(name);
+}
+function findPreviousYearPresetName(prevYear){
+  const names=Object.keys(APP_STATE.rowHistoryPresets||{});
+  const exact=[String(prevYear),`${prevYear} bed state`,`${prevYear} Bed State`,`${prevYear} row history`];
+  for(const nm of exact){ if(APP_STATE.rowHistoryPresets?.[nm]) return nm; }
+  return names.find(n=>new RegExp(`\\b${prevYear}\\b`).test(n))||'';
+}
+function loadPreviousYearRowHistoryPreset(){
+  updateBedsFromUi();
+  syncPlanningYearFromUi();
+  const prevYear=Math.max(2020,APP_STATE.planningYear-1);
+  const name=findPreviousYearPresetName(prevYear);
+  if(!name){
+    setRowHistoryPresetStatus(`No preset found for ${prevYear}. Save one first (e.g., "${prevYear} bed state").`);
+    return;
+  }
+  const sel=document.getElementById('rowHistoryPresetSelect');
+  if(sel) sel.value=name;
+  applyRowHistoryPreset(name);
+}
+function deleteSelectedRowHistoryPreset(){
+  const name=rowHistoryPresetSelectValue();
+  if(!name){ setRowHistoryPresetStatus('Select a preset to delete.'); return; }
+  const next={...(APP_STATE.rowHistoryPresets||{})};
+  delete next[name];
+  APP_STATE.rowHistoryPresets=normalizeRowHistoryPresets(next,APP_STATE.beds);
+  persistBedAndWeatherState();
+  renderRowHistoryPresetControls(`Deleted preset "${name}".`);
+}
 function syncWeatherUiFromState(){
   const w=normalizeWeatherState(APP_STATE.weather);
   APP_STATE.weather=w;
@@ -762,6 +928,8 @@ function persistBedAndWeatherState(){
   safeLocalStorageSet(LS_KEYS.beds,JSON.stringify(APP_STATE.beds));
   safeLocalStorageSet(LS_KEYS.weather,JSON.stringify(APP_STATE.weather));
   safeLocalStorageSet(LS_KEYS.bedPlacementPrefs,JSON.stringify(APP_STATE.bedPlacementPrefs||{}));
+  safeLocalStorageSet(LS_KEYS.rowHistoryPresets,JSON.stringify(APP_STATE.rowHistoryPresets||{}));
+  safeLocalStorageSet(LS_KEYS.planningYear,String(APP_STATE.planningYear||new Date().getFullYear()));
 }
 function saveBedAndWeatherState(){
   updateBedsFromUi();
@@ -784,7 +952,16 @@ function loadBedAndWeatherState(){
     const wxRaw=safeLocalStorageGet(LS_KEYS.weather);
     APP_STATE.weather=wxRaw?normalizeWeatherState(JSON.parse(wxRaw)):normalizeWeatherState(WEATHER_STATE_DEFAULTS);
   }catch{ APP_STATE.weather=normalizeWeatherState(WEATHER_STATE_DEFAULTS); }
+  try{
+    const presetsRaw=safeLocalStorageGet(LS_KEYS.rowHistoryPresets);
+    APP_STATE.rowHistoryPresets=presetsRaw?normalizeRowHistoryPresets(JSON.parse(presetsRaw),APP_STATE.beds):{};
+  }catch{ APP_STATE.rowHistoryPresets={}; }
+  try{
+    const pyRaw=safeLocalStorageGet(LS_KEYS.planningYear);
+    APP_STATE.planningYear=Math.max(2020,Math.min(2100,Number(pyRaw)||new Date().getFullYear()));
+  }catch{ APP_STATE.planningYear=new Date().getFullYear(); }
   renderBedsEditor();
+  renderRowHistoryPresetControls();
   syncWeatherUiFromState();
 }
 function addBedRow(){
@@ -837,6 +1014,7 @@ function renderBedsEditor(){
   </div>
   </div>`).join('');
   updateBedsSummary();
+  renderRowHistoryPresetControls();
 }
 function updateBedsFromUi(){
   const rows=[...document.querySelectorAll('#bedsList > [data-bed-id]')];
