@@ -126,6 +126,9 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-bed-row input,.pt-bed-row select{width:100%;padding:6px 8px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.78em;background:#fff}
 .pt-bed-row label{font-size:.72em;color:#4f5f4f}
 .pt-bed-row button{padding:7px 8px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.75em;cursor:pointer}
+.pt-bed-row-extra{display:grid;grid-template-columns:1fr .8fr .9fr .9fr;gap:6px;align-items:end;margin-top:4px}
+.pt-bed-row-extra input,.pt-bed-row-extra select{width:100%;padding:6px 8px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.78em;background:#fff}
+.pt-bed-row-extra label{font-size:.72em;color:#4f5f4f}
 .pt-bed-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .pt-bed-actions button{padding:7px 9px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.78em;cursor:pointer}
 .pt-bed-summary,.pt-bed-alloc{font-size:.78em;color:#4f5f4f;background:#f8fbf6;border:1px solid #e0e8de;border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.35}
@@ -149,6 +152,17 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-bed-legend-swatch{width:11px;height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.08)}
 .pt-bed-legend-item button{padding:2px 6px;border:1px solid #d4ddd4;background:#fff;border-radius:999px;font-size:.68em;cursor:pointer}
 .pt-bed-empty{font-size:.76em;color:#617161}
+.pt-bed-rowmap{margin-top:8px;background:#f8fbf6;border:1px solid #e0e8de;border-radius:8px;padding:8px}
+.pt-bed-rowmap-head{font-size:.74em;color:#536353;margin-bottom:6px}
+.pt-rowlane{display:grid;grid-template-columns:54px 1fr;gap:6px;align-items:center;margin-bottom:5px}
+.pt-rowlane:last-child{margin-bottom:0}
+.pt-rowlane-label{font-size:.72em;color:#4f5f4f;font-weight:600}
+.pt-rowlane-label .trellis{color:#7c5200}
+.pt-rowlane-track{position:relative;height:20px;background:#eef4eb;border:1px solid #dfe8dc;border-radius:999px;overflow:hidden}
+.pt-rowlane-track.trellis{box-shadow:inset 0 0 0 2px #f59e0b33}
+.pt-rowlane-seg{position:absolute;top:1px;bottom:1px;border-radius:999px;border:1px solid rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;font-size:.62em;font-weight:700;color:#173117;overflow:hidden;white-space:nowrap;padding:0 4px}
+.pt-rowlane-seg.tight{box-shadow:inset 0 0 0 2px #ef4444}
+.pt-rowlane-overflow{font-size:.68em;color:#92400e;margin-left:60px;margin-top:-2px;margin-bottom:4px}
 .vrtags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .vrtag{display:inline-block;background:#eef6ea;color:#2d5a27;border-radius:999px;padding:2px 7px;font-size:.7em;font-weight:600}
 .vrtag.recipe{background:#fff3cd;color:#7c5200}
@@ -178,7 +192,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .mg-src span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:2px 8px;font-size:.72em;font-weight:600}
 .mg-ctx{background:#0f172a;color:#dbeafe;border-radius:10px;padding:10px 12px;font-size:.75em;max-height:220px;overflow:auto;white-space:pre-wrap}
 @media(max-width:900px){.dl{flex-direction:column}.ds{width:100%}.vl{max-height:300px}.ig{grid-template-columns:1fr 1fr}.vc .vdt{grid-template-columns:1fr}}
-@media(max-width:900px){.pt-wrap{grid-template-columns:1fr}.pt-mini-grid{grid-template-columns:1fr}.pt-bed-row{grid-template-columns:1fr 1fr 1fr}.pt-bed-row button{grid-column:1/-1}.pt-bed-cell{min-height:16px}}
+@media(max-width:900px){.pt-wrap{grid-template-columns:1fr}.pt-mini-grid{grid-template-columns:1fr}.pt-bed-row{grid-template-columns:1fr 1fr 1fr}.pt-bed-row button{grid-column:1/-1}.pt-bed-row-extra{grid-template-columns:1fr 1fr}.pt-bed-cell{min-height:16px}.pt-rowlane{grid-template-columns:44px 1fr}}
 @media(max-width:600px){.tabs{overflow-x:auto}.tab{padding:8px 12px;font-size:.8em;white-space:nowrap}table{font-size:.72em}header h1{font-size:1.3em}.pt-ctrls input{width:95px}}
 </style>
 </head>
@@ -429,9 +443,9 @@ const GARDEN_PROFILE={zip:'40165',zone:'6b/7a',soilType:'heavy Kentucky red clay
 const RECIPE_TARGET_DEFAULTS={salsaPints:0,pickleQuarts:0,pestoBatches:0,curryPots:0};
 const WEATHER_STATE_DEFAULTS={rainLast3dIn:0,rainNext3dIn:0,humidityRisk:'medium',soilCondition:'workable'};
 const DEFAULT_BEDS=[
-  {id:'bed-a',name:'Bed A',lengthFt:8,widthFt:4,sun:'full',drainage:'good'},
-  {id:'bed-b',name:'Bed B',lengthFt:8,widthFt:4,sun:'full',drainage:'average'},
-  {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good'}
+  {id:'bed-a',name:'Bed A',lengthFt:8,widthFt:4,sun:'full',drainage:'good',layoutMode:'rows',rowSpacingIn:12,trellisSide:'north',trellisBandFt:1},
+  {id:'bed-b',name:'Bed B',lengthFt:8,widthFt:4,sun:'full',drainage:'average',layoutMode:'rows',rowSpacingIn:12,trellisSide:'none',trellisBandFt:1},
+  {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good',layoutMode:'rows',rowSpacingIn:12,trellisSide:'south',trellisBandFt:1}
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
 const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
@@ -615,7 +629,11 @@ function normalizeBeds(beds){
     lengthFt:round1(parseFloatSafe(b?.lengthFt,0,100,8)),
     widthFt:round1(parseFloatSafe(b?.widthFt,0,30,4)),
     sun:['full','part','shade'].includes(b?.sun)?b.sun:'full',
-    drainage:['good','average','poor','raised'].includes(b?.drainage)?b.drainage:'average'
+    drainage:['good','average','poor','raised'].includes(b?.drainage)?b.drainage:'average',
+    layoutMode:['rows','block'].includes(b?.layoutMode)?b.layoutMode:'rows',
+    rowSpacingIn:round1(parseFloatSafe(b?.rowSpacingIn,6,36,12)),
+    trellisSide:['none','north','south','east','west'].includes(b?.trellisSide)?b.trellisSide:'none',
+    trellisBandFt:round1(parseFloatSafe(b?.trellisBandFt,0.5,4,1))
   })).filter(b=>b.lengthFt>0&&b.widthFt>0);
   return out.length?out:DEFAULT_BEDS.map(b=>({...b}));
 }
@@ -744,22 +762,30 @@ function renderBedsEditor(){
   const host=document.getElementById('bedsList');
   if(!host)return;
   APP_STATE.beds=normalizeBeds(APP_STATE.beds);
-  host.innerHTML=APP_STATE.beds.map((b,idx)=>`<div class="pt-bed-row" data-bed-id="${escapeHtml(b.id)}">
+  host.innerHTML=APP_STATE.beds.map((b,idx)=>`<div data-bed-id="${escapeHtml(b.id)}">
+  <div class="pt-bed-row" data-bed-id="${escapeHtml(b.id)}">
     <label>Name<input data-k="name" value="${escapeHtml(b.name)}" oninput="handleBedConfigChange()"></label>
     <label>L (ft)<input data-k="lengthFt" type="number" min="1" max="100" step="0.5" value="${escapeHtml(String(b.lengthFt))}" oninput="handleBedConfigChange()"></label>
     <label>W (ft)<input data-k="widthFt" type="number" min="1" max="30" step="0.5" value="${escapeHtml(String(b.widthFt))}" oninput="handleBedConfigChange()"></label>
     <label>Sun<select data-k="sun" onchange="handleBedConfigChange()"><option value="full"${b.sun==='full'?' selected':''}>Full</option><option value="part"${b.sun==='part'?' selected':''}>Part</option><option value="shade"${b.sun==='shade'?' selected':''}>Shade</option></select></label>
     <label>Drainage<select data-k="drainage" onchange="handleBedConfigChange()"><option value="raised"${b.drainage==='raised'?' selected':''}>Raised</option><option value="good"${b.drainage==='good'?' selected':''}>Good</option><option value="average"${b.drainage==='average'?' selected':''}>Average</option><option value="poor"${b.drainage==='poor'?' selected':''}>Poor</option></select></label>
     <button type="button" onclick="removeBedRow('${escapeHtml(b.id)}')" title="Remove ${escapeHtml(b.name)}" ${APP_STATE.beds.length===1?'disabled':''}>${idx===0&&APP_STATE.beds.length===1?'Keep':'Remove'}</button>
+  </div>
+  <div class="pt-bed-row-extra" data-bed-id="${escapeHtml(b.id)}">
+    <label>Layout<select data-k="layoutMode" onchange="handleBedConfigChange()"><option value="rows"${b.layoutMode==='rows'?' selected':''}>Rows</option><option value="block"${b.layoutMode==='block'?' selected':''}>Block</option></select></label>
+    <label>Row Spacing (in)<input data-k="rowSpacingIn" type="number" min="6" max="36" step="1" value="${escapeHtml(String(b.rowSpacingIn||12))}" oninput="handleBedConfigChange()"></label>
+    <label>Trellis Side<select data-k="trellisSide" onchange="handleBedConfigChange()"><option value="none"${b.trellisSide==='none'?' selected':''}>None</option><option value="north"${b.trellisSide==='north'?' selected':''}>North</option><option value="south"${b.trellisSide==='south'?' selected':''}>South</option><option value="east"${b.trellisSide==='east'?' selected':''}>East</option><option value="west"${b.trellisSide==='west'?' selected':''}>West</option></select></label>
+    <label>Trellis Band (ft)<input data-k="trellisBandFt" type="number" min="0.5" max="4" step="0.5" value="${escapeHtml(String(b.trellisBandFt||1))}" oninput="handleBedConfigChange()"></label>
+  </div>
   </div>`).join('');
   updateBedsSummary();
 }
 function updateBedsFromUi(){
-  const rows=[...document.querySelectorAll('#bedsList .pt-bed-row')];
+  const rows=[...document.querySelectorAll('#bedsList > [data-bed-id]')];
   if(!rows.length)return;
   APP_STATE.beds=normalizeBeds(rows.map(r=>{
     const get=k=>r.querySelector(`[data-k="${k}"]`)?.value;
-    return {id:r.dataset.bedId||uid('bed'),name:get('name'),lengthFt:get('lengthFt'),widthFt:get('widthFt'),sun:get('sun'),drainage:get('drainage')};
+    return {id:r.dataset.bedId||uid('bed'),name:get('name'),lengthFt:get('lengthFt'),widthFt:get('widthFt'),sun:get('sun'),drainage:get('drainage'),layoutMode:get('layoutMode'),rowSpacingIn:get('rowSpacingIn'),trellisSide:get('trellisSide'),trellisBandFt:get('trellisBandFt')};
   }));
   APP_STATE.bedPlacementPrefs=normalizeBedPlacementPrefs(APP_STATE.bedPlacementPrefs,APP_STATE.beds);
 }
@@ -809,6 +835,65 @@ function bedSuitabilityScoreForCrop(bed,crop,sc){
   if(wet && dRank===0) score-=4;
   if(wet && dRank>=2) score+=2;
   return score;
+}
+function isLikelyTrellisCrop(crop,sc){
+  const n=String(crop?.name||'').toLowerCase();
+  if(/\bpeas?\b|pole snap beans|pole beans|cucumbers|tomatillos/.test(n)) return true;
+  if(/\btomatoes\b/.test(n)) return true;
+  if(/\bblackberries|raspberries\b/.test(n)) return true;
+  return Boolean(sc?.spacing?.betweenRowsIn && sc.spacing.betweenRowsIn>=30 && /bean|pea|cucumber|tomato|berry/i.test(n));
+}
+function getBedRowSettings(bed){
+  const mode=bed?.layoutMode==='block'?'block':'rows';
+  const rowSpacingIn=clamp(Number(bed?.rowSpacingIn)||12,6,36);
+  const rowCount=Math.max(1,Math.floor(((Number(bed?.widthFt)||1)*12)/rowSpacingIn));
+  const actualRowSpacingIn=round1(((Number(bed?.widthFt)||1)*12)/rowCount);
+  const trellisSide=['north','south','east','west'].includes(bed?.trellisSide)?bed.trellisSide:'none';
+  const trellisBandFt=clamp(Number(bed?.trellisBandFt)||1,0.5,4);
+  return {mode,rowSpacingIn,actualRowSpacingIn,rowCount,trellisSide,trellisBandFt};
+}
+function buildBedRowSnapLayout(allocation,bed){
+  const settings=getBedRowSettings(bed);
+  if(settings.mode!=='rows') return null;
+  const rowLenFt=Math.max(1,Number(bed?.lengthFt)||1);
+  const lanes=Array.from({length:settings.rowCount},(_,i)=>({index:i,label:`R${i+1}`,remainingFt:rowLenFt,segments:[],overflowFt:0,isTrellis:false}));
+  if(settings.trellisSide!=='none'){
+    const trellisIndex=(settings.trellisSide==='south' || settings.trellisSide==='west') ? lanes.length-1 : 0;
+    if(lanes[trellisIndex]){ lanes[trellisIndex].isTrellis=true; lanes[trellisIndex].label=`R${trellisIndex+1}`; }
+  }
+  const rowAssignments=[];
+  (allocation?.rows||[]).forEach(r=>{
+    const hit=(r.allocation?.bedAssignments||[]).find(a=>a.bedId===bed.id);
+    if(!hit) return;
+    const sc=r.sc||getStructuredCrop(r.crop);
+    const betweenRowsIn=Number(sc?.spacing?.betweenRowsIn)||settings.actualRowSpacingIn||12;
+    const rowFeetNeeded=round1((Number(hit.sqFt)||0)/Math.max(0.5,betweenRowsIn/12));
+    const isTrellis=isLikelyTrellisCrop(r.crop,sc);
+    const tooTight=betweenRowsIn>(settings.actualRowSpacingIn*1.15);
+    rowAssignments.push({crop:r.crop,sc,color:cropColor(r.crop.name),plants:hit.plants,sqFt:hit.sqFt,rowFeetNeeded,betweenRowsIn,isTrellis,tooTight,locked:Boolean(r.allocation?.lockedToBed),preferredBedId:r.allocation?.preferredBedId||null});
+  });
+  rowAssignments.sort((a,b)=>(b.isTrellis?1:0)-(a.isTrellis?1:0)||b.rowFeetNeeded-a.rowFeetNeeded||a.crop.name.localeCompare(b.crop.name));
+  for(const item of rowAssignments){
+    let need=Math.max(0,item.rowFeetNeeded||0);
+    const laneOrder=lanes
+      .map((lane,idx)=>({lane,idx,score:(item.isTrellis&&lane.isTrellis?100:0)+(lane.isTrellis&&!item.isTrellis?-4:0)+lane.remainingFt}))
+      .sort((a,b)=>b.score-a.score||a.idx-b.idx);
+    for(const {lane} of laneOrder){
+      if(need<=0) break;
+      if(lane.remainingFt<=0) continue;
+      const take=round1(Math.min(need,lane.remainingFt));
+      if(take<=0) continue;
+      const usedFt=round1(rowLenFt-lane.remainingFt);
+      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis});
+      lane.remainingFt=round1(Math.max(0,lane.remainingFt-take));
+      need=round1(Math.max(0,need-take));
+    }
+    if(need>0){
+      const targetLane=laneOrder[0]?.lane||lanes[0];
+      if(targetLane) targetLane.overflowFt=round1((targetLane.overflowFt||0)+need);
+    }
+  }
+  return {settings,rowLenFt,lanes,rowAssignments};
 }
 function getVarietyRecipeTags(crop,variety){
   const rules=VARIETY_RECIPE_TAG_RULES[crop?.name]||[];
@@ -1143,6 +1228,28 @@ function clearCropPlacementPrefBtn(btn){
   const cropName=btn?.dataset?.crop;
   clearCropPlacementPref(cropName);
 }
+function renderRowSnapMapHtml(allocation,bed){
+  const snap=buildBedRowSnapLayout(allocation,bed);
+  if(!snap) return '';
+  const s=snap.settings;
+  const head=`Rows mode · target spacing ${s.rowSpacingIn}" · actual ${s.actualRowSpacingIn}" · ${s.rowCount} rows${s.trellisSide!=='none'?` · trellis ${s.trellisSide}`:''}`;
+  const lanesHtml=snap.lanes.map(lane=>{
+    const segs=lane.segments.map(seg=>{
+      const left=((seg.startFt/snap.rowLenFt)*100).toFixed(2);
+      const width=Math.max(1.2,(seg.lenFt/snap.rowLenFt)*100).toFixed(2);
+      const short=escapeHtml(seg.cropName.split(' ').slice(0,2).join(' '));
+      return `<div class="pt-rowlane-seg${seg.tight?' tight':''}" style="left:${left}%;width:${width}%;background:${seg.color}" title="${escapeHtml(seg.cropName)} · ~${seg.lenFt.toFixed(1)} row-ft · spacing rows ${seg.betweenRowsIn}\"><span>${short}</span></div>`;
+    }).join('');
+    return `<div>
+      <div class="pt-rowlane">
+        <div class="pt-rowlane-label">${escapeHtml(lane.label)}${lane.isTrellis?` <span class="trellis">T</span>`:''}</div>
+        <div class="pt-rowlane-track${lane.isTrellis?' trellis':''}" title="${lane.isTrellis?'Trellis-preferred row':''}">${segs}</div>
+      </div>
+      ${lane.overflowFt?`<div class="pt-rowlane-overflow">Overflow: ~${lane.overflowFt.toFixed(1)} row-ft (bed too tight for row spacing / airflow at current allocation)</div>`:''}
+    </div>`;
+  }).join('');
+  return `<div class="pt-bed-rowmap"><div class="pt-bed-rowmap-head">${head}</div>${lanesHtml}</div>`;
+}
 function renderPlannerBedMaps(allocation){
   const host=document.getElementById('plannerBedMaps');
   if(!host)return;
@@ -1152,6 +1259,7 @@ function renderPlannerBedMaps(allocation){
   }
   const beds=allocation.beds||[];
   host.innerHTML=beds.map(bed=>{
+    const bedSettings=getBedRowSettings(bed);
     const bedArea=Math.max(1,Math.round(bedSqFt(bed)));
     const rows=Math.max(1,Math.round(Number(bed.widthFt)||1));
     const cols=Math.max(1,Math.ceil(bedArea/rows));
@@ -1175,8 +1283,9 @@ function renderPlannerBedMaps(allocation){
     return `<div class="pt-bed-map-card">
       <div class="pt-bed-map-head">
         <b>${escapeHtml(bed.name)}</b>
-        <div class="pt-bed-map-meta">${bed.lengthFt}x${bed.widthFt} ft · ${bedSqFt(bed).toFixed(1)} sq ft · sun ${escapeHtml(bed.sun)} · drainage ${escapeHtml(bed.drainage)} · used ${usedSqFt.toFixed(1)} sq ft</div>
+        <div class="pt-bed-map-meta">${bed.lengthFt}x${bed.widthFt} ft · ${bedSqFt(bed).toFixed(1)} sq ft · ${bedSettings.mode} · sun ${escapeHtml(bed.sun)} · drainage ${escapeHtml(bed.drainage)} · used ${usedSqFt.toFixed(1)} sq ft</div>
       </div>
+      ${renderRowSnapMapHtml(allocation,bed)}
       <div class="pt-bed-map-grid" data-bed-id="${escapeHtml(bed.id)}" ondragover="handleBedMapDragOver(event)" ondragenter="handleBedMapDragEnter(event)" ondragleave="handleBedMapDragLeave(event)" ondrop="handleBedMapDrop(event)" style="${gridStyle}" title="${escapeHtml(bed.name)} layout map (approx by area) · drop crop blocks here to move">
         ${cells.map((cell,i)=>{
           if(!cell) return `<div class="pt-bed-cell empty" title="Open space"></div>`;
@@ -1438,7 +1547,7 @@ function buildAssistantContext(){
     county:GARDEN_PROFILE.county,
     soilProfile:{type:GARDEN_PROFILE.soilType},
     weatherSnapshot:{...normalizeWeatherState(APP_STATE.weather),alerts:weatherRiskFlags(crop||null).messages.slice(0,3)},
-    beds:{totalSqFt:totalBedSqFt(beds),items:beds.map(b=>({name:b.name,lengthFt:b.lengthFt,widthFt:b.widthFt,sqFt:bedSqFt(b),sun:b.sun,drainage:b.drainage}))},
+    beds:{totalSqFt:totalBedSqFt(beds),items:beds.map(b=>({name:b.name,lengthFt:b.lengthFt,widthFt:b.widthFt,sqFt:bedSqFt(b),sun:b.sun,drainage:b.drainage,layoutMode:b.layoutMode,rowSpacingIn:b.rowSpacingIn,trellisSide:b.trellisSide}))},
     placementPrefs:Object.fromEntries(Object.entries(APP_STATE.bedPlacementPrefs||{}).slice(0,20)),
     recipeTargets:{...APP_STATE.recipeTargets},
     uiContext:{activeTab:document.querySelector('.tab.active')?.textContent?.trim()||null,selectedCropId:sc?.id||null,selectedCropName:crop?.name||null},
