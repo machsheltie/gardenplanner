@@ -130,6 +130,19 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-bed-actions button{padding:7px 9px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.78em;cursor:pointer}
 .pt-bed-summary,.pt-bed-alloc{font-size:.78em;color:#4f5f4f;background:#f8fbf6;border:1px solid #e0e8de;border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.35}
 .pt-bed-alloc code{font-size:.9em}
+.pt-bed-maps{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
+.pt-bed-map-card{background:#fff;border:1px solid #e0e8de;border-radius:10px;padding:10px}
+.pt-bed-map-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.pt-bed-map-head b{color:#2d5a27}
+.pt-bed-map-meta{font-size:.74em;color:#5a6a5a}
+.pt-bed-map-grid{display:grid;gap:3px;background:#eef4eb;border:1px solid #dfe8dc;border-radius:8px;padding:6px}
+.pt-bed-cell{min-height:20px;border-radius:4px;border:1px solid rgba(255,255,255,.45);position:relative}
+.pt-bed-cell.empty{background:repeating-linear-gradient(45deg,#f6faf4,#f6faf4 6px,#edf4ea 6px,#edf4ea 12px);border-color:#e5ece2}
+.pt-bed-cell span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.62em;font-weight:700;color:#173117;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+.pt-bed-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pt-bed-legend-item{display:flex;align-items:center;gap:5px;background:#f8fbf6;border:1px solid #e0e8de;border-radius:999px;padding:3px 8px;font-size:.72em;color:#425242}
+.pt-bed-legend-swatch{width:11px;height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.08)}
+.pt-bed-empty{font-size:.76em;color:#617161}
 .vrtags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .vrtag{display:inline-block;background:#eef6ea;color:#2d5a27;border-radius:999px;padding:2px 7px;font-size:.7em;font-weight:600}
 .vrtag.recipe{background:#fff3cd;color:#7c5200}
@@ -159,7 +172,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .mg-src span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:2px 8px;font-size:.72em;font-weight:600}
 .mg-ctx{background:#0f172a;color:#dbeafe;border-radius:10px;padding:10px 12px;font-size:.75em;max-height:220px;overflow:auto;white-space:pre-wrap}
 @media(max-width:900px){.dl{flex-direction:column}.ds{width:100%}.vl{max-height:300px}.ig{grid-template-columns:1fr 1fr}.vc .vdt{grid-template-columns:1fr}}
-@media(max-width:900px){.pt-wrap{grid-template-columns:1fr}.pt-mini-grid{grid-template-columns:1fr}.pt-bed-row{grid-template-columns:1fr 1fr 1fr}.pt-bed-row button{grid-column:1/-1}}
+@media(max-width:900px){.pt-wrap{grid-template-columns:1fr}.pt-mini-grid{grid-template-columns:1fr}.pt-bed-row{grid-template-columns:1fr 1fr 1fr}.pt-bed-row button{grid-column:1/-1}.pt-bed-cell{min-height:16px}}
 @media(max-width:600px){.tabs{overflow-x:auto}.tab{padding:8px 12px;font-size:.8em;white-space:nowrap}table{font-size:.72em}header h1{font-size:1.3em}.pt-ctrls input{width:95px}}
 </style>
 </head>
@@ -242,6 +255,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 </div>
 <div class="pt-bed-summary" id="bedsSummary">No beds configured yet.</div>
 <div class="pt-bed-alloc" id="plannerBedAllocSummary">Bed-level allocations will appear here.</div>
+<div class="pt-bed-maps" id="plannerBedMaps"></div>
 </div>
 </div>
 <div class="pt-sum" id="plannerSummary">Set household size to generate recommended plants and bed space.</div>
@@ -979,6 +993,71 @@ function plannerStatusLabel(allocation,plan){
   if(allocation.status==='defer') return 'Deferred';
   return allocation.status;
 }
+function cropColor(name){
+  const s=String(name||'crop');
+  let h=0;
+  for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360;
+  return `hsl(${h} 60% 72%)`;
+}
+function contrastTextForHslFill(){ return '#173117' }
+function proportionalCellCounts(items,totalCells){
+  if(!items.length || totalCells<=0) return [];
+  const totalVal=items.reduce((s,x)=>s+Math.max(0,Number(x.value)||0),0);
+  if(totalVal<=0) return items.map(()=>0);
+  const raw=items.map(x=>(Math.max(0,Number(x.value)||0)/totalVal)*totalCells);
+  const base=raw.map(v=>Math.floor(v));
+  let used=base.reduce((a,b)=>a+b,0);
+  const order=raw.map((v,i)=>({i,frac:v-base[i]})).sort((a,b)=>b.frac-a.frac);
+  for(let k=0; used<totalCells && k<order.length; k++, used++) base[order[k].i]+=1;
+  return base;
+}
+function buildBedMapEntries(allocation,bed){
+  const rows=allocation?.rows||[];
+  const entries=[];
+  rows.forEach(r=>{
+    (r.allocation?.bedAssignments||[]).forEach(a=>{
+      if(a.bedId!==bed.id)return;
+      entries.push({cropName:r.crop.name,plants:a.plants,sqFt:a.sqFt,color:cropColor(r.crop.name),status:r.allocation.status});
+    });
+  });
+  return entries.sort((a,b)=>b.sqFt-a.sqFt||a.cropName.localeCompare(b.cropName));
+}
+function renderPlannerBedMaps(allocation){
+  const host=document.getElementById('plannerBedMaps');
+  if(!host)return;
+  if(!allocation?.hasBeds){
+    host.innerHTML='';
+    return;
+  }
+  const beds=allocation.beds||[];
+  host.innerHTML=beds.map(bed=>{
+    const bedArea=Math.max(1,Math.round(bedSqFt(bed)));
+    const rows=Math.max(1,Math.round(Number(bed.widthFt)||1));
+    const cols=Math.max(1,Math.ceil(bedArea/rows));
+    const entries=buildBedMapEntries(allocation,bed);
+    const counts=proportionalCellCounts(entries.map(e=>({value:e.sqFt})),Math.min(240,bedArea));
+    const cells=[];
+    entries.forEach((e,idx)=>{ for(let i=0;i<(counts[idx]||0);i++) cells.push(e); });
+    while(cells.length<Math.min(240,bedArea)) cells.push(null);
+    const gridStyle=`grid-template-columns:repeat(${cols}, minmax(8px,1fr));`;
+    const usedSqFt=round1(entries.reduce((s,e)=>s+e.sqFt,0));
+    const legends=entries.map(e=>`<span class="pt-bed-legend-item"><span class="pt-bed-legend-swatch" style="background:${e.color}"></span>${escapeHtml(e.cropName)} · ${e.plants} plants · ${e.sqFt.toFixed(1)} sq ft</span>`).join('');
+    return `<div class="pt-bed-map-card">
+      <div class="pt-bed-map-head">
+        <b>${escapeHtml(bed.name)}</b>
+        <div class="pt-bed-map-meta">${bed.lengthFt}x${bed.widthFt} ft · ${bedSqFt(bed).toFixed(1)} sq ft · sun ${escapeHtml(bed.sun)} · drainage ${escapeHtml(bed.drainage)} · used ${usedSqFt.toFixed(1)} sq ft</div>
+      </div>
+      <div class="pt-bed-map-grid" style="${gridStyle}" title="${escapeHtml(bed.name)} layout map (approx by area)">
+        ${cells.map((cell,i)=>{
+          if(!cell) return `<div class="pt-bed-cell empty" title="Open space"></div>`;
+          const label=i===0 || (i>0 && cells[i-1]?.cropName!==cell.cropName)?escapeHtml(cell.cropName.split(' ').slice(0,2).join(' ')):'';
+          return `<div class="pt-bed-cell" style="background:${cell.color}" title="${escapeHtml(cell.cropName)} (${cell.plants} plants, ${cell.sqFt.toFixed(1)} sq ft approx)"><span style="color:${contrastTextForHslFill()}">${label}</span></div>`;
+        }).join('')}
+      </div>
+      ${legends?`<div class="pt-bed-legend">${legends}</div>`:`<div class="pt-bed-empty">No crop blocks assigned yet for this bed.</div>`}
+    </div>`;
+  }).join('');
+}
 function getPlannerAllocationForCrop(cropName){
   if(!cropName) return null;
   const rows=allocatePlannerRows(getPlannerRows({ignoreSearch:true})).rows;
@@ -1020,7 +1099,9 @@ function renderPeoplePlanner(){
   if(!rankedRows.length){
     body.innerHTML='<tr><td colspan="6">No crops match the current filter.</td></tr>';
     sum.textContent='No planner rows matched your filter.';
-    renderPlannerBedAllocationSummary({rows:[],bedUsage:[],hasBeds:getActiveBeds().length>0,budgetSqFt:0,usedSqFt:0,remainingSqFt:0,bedsTotalSqFt:totalBedSqFt()});
+    const emptyAlloc={rows:[],bedUsage:[],hasBeds:getActiveBeds().length>0,beds:getActiveBeds(),budgetSqFt:0,usedSqFt:0,remainingSqFt:0,bedsTotalSqFt:totalBedSqFt()};
+    renderPlannerBedAllocationSummary(emptyAlloc);
+    renderPlannerBedMaps(emptyAlloc);
     return;
   }
   const allocation=allocatePlannerRows(rankedRows);
@@ -1042,6 +1123,7 @@ function renderPeoplePlanner(){
     return `<tr><td><div><strong>${crop.name}</strong></div><div class="pt-chip">${crop.cat}</div></td><td>${plan.spacingText}</td><td>${plantsCell}</td><td>${sqFtCell}</td><td>${plannerStatusLabel(alloc,plan)}</td><td>${note.filter(Boolean).join(' · ')}</td></tr>`;
   }).join('');
   renderPlannerBedAllocationSummary(allocation);
+  renderPlannerBedMaps(allocation);
   const limitTxt=APP_STATE.bedSpaceLimit>0
     ? ` · Manual cap: <strong>${APP_STATE.bedSpaceLimit.toFixed(0)} sq ft</strong> · Fit: <strong>${allocation.usedSqFt?.toFixed?allocation.usedSqFt.toFixed(1):allocation.usedSqFt} sq ft</strong>${allocation.remainingSqFt!=null?` · Remaining: <strong>${allocation.remainingSqFt.toFixed(1)} sq ft</strong>`:''}`
     : '';
