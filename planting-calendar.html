@@ -160,6 +160,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-rowlane-label .trellis{color:#7c5200}
 .pt-rowlane-track{position:relative;height:20px;background:#eef4eb;border:1px solid #dfe8dc;border-radius:999px;overflow:hidden}
 .pt-rowlane-track.trellis{box-shadow:inset 0 0 0 2px #f59e0b33}
+.pt-rowlane-track.drop-target{outline:2px dashed #4a8c3f;outline-offset:1px;background:#e8f5e0}
 .pt-rowlane-seg{position:absolute;top:1px;bottom:1px;border-radius:999px;border:1px solid rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;font-size:.62em;font-weight:700;color:#173117;overflow:hidden;white-space:nowrap;padding:0 4px}
 .pt-rowlane-seg.tight{box-shadow:inset 0 0 0 2px #ef4444}
 .pt-rowlane-overflow{font-size:.68em;color:#92400e;margin-left:60px;margin-top:-2px;margin-bottom:4px}
@@ -645,7 +646,9 @@ function normalizeBedPlacementPrefs(prefs,beds=getActiveBeds()){
     if(!val || typeof val!=='object') continue;
     const bedId=String(val.bedId||'');
     if(!bedIds.has(bedId)) continue;
-    out[String(cropName)]={bedId,locked:Boolean(val.locked)};
+    const rowNum=Number(val.rowIndex);
+    const rowIndex=Number.isInteger(rowNum)?Math.max(0,rowNum):null;
+    out[String(cropName)]={bedId,locked:Boolean(val.locked),rowIndex};
   }
   return out;
 }
@@ -866,17 +869,19 @@ function buildBedRowSnapLayout(allocation,bed){
     const hit=(r.allocation?.bedAssignments||[]).find(a=>a.bedId===bed.id);
     if(!hit) return;
     const sc=r.sc||getStructuredCrop(r.crop);
+    const pref=getPlacementPref(r.crop.name);
+    const preferredRowIndex=(pref?.bedId===bed.id && Number.isInteger(pref?.rowIndex))?Math.max(0,Math.min(lanes.length-1,pref.rowIndex)):null;
     const betweenRowsIn=Number(sc?.spacing?.betweenRowsIn)||settings.actualRowSpacingIn||12;
     const rowFeetNeeded=round1((Number(hit.sqFt)||0)/Math.max(0.5,betweenRowsIn/12));
     const isTrellis=isLikelyTrellisCrop(r.crop,sc);
     const tooTight=betweenRowsIn>(settings.actualRowSpacingIn*1.15);
-    rowAssignments.push({crop:r.crop,sc,color:cropColor(r.crop.name),plants:hit.plants,sqFt:hit.sqFt,rowFeetNeeded,betweenRowsIn,isTrellis,tooTight,locked:Boolean(r.allocation?.lockedToBed),preferredBedId:r.allocation?.preferredBedId||null});
+    rowAssignments.push({crop:r.crop,sc,color:cropColor(r.crop.name),plants:hit.plants,sqFt:hit.sqFt,rowFeetNeeded,betweenRowsIn,isTrellis,tooTight,locked:Boolean(r.allocation?.lockedToBed),preferredBedId:r.allocation?.preferredBedId||null,preferredRowIndex});
   });
   rowAssignments.sort((a,b)=>(b.isTrellis?1:0)-(a.isTrellis?1:0)||b.rowFeetNeeded-a.rowFeetNeeded||a.crop.name.localeCompare(b.crop.name));
   for(const item of rowAssignments){
     let need=Math.max(0,item.rowFeetNeeded||0);
     const laneOrder=lanes
-      .map((lane,idx)=>({lane,idx,score:(item.isTrellis&&lane.isTrellis?100:0)+(lane.isTrellis&&!item.isTrellis?-4:0)+lane.remainingFt}))
+      .map((lane,idx)=>({lane,idx,score:(item.preferredRowIndex===idx?200:0)+(item.isTrellis&&lane.isTrellis?100:0)+(lane.isTrellis&&!item.isTrellis?-4:0)+lane.remainingFt}))
       .sort((a,b)=>b.score-a.score||a.idx-b.idx);
     for(const {lane} of laneOrder){
       if(need<=0) break;
@@ -884,7 +889,7 @@ function buildBedRowSnapLayout(allocation,bed){
       const take=round1(Math.min(need,lane.remainingFt));
       if(take<=0) continue;
       const usedFt=round1(rowLenFt-lane.remainingFt);
-      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis});
+      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis,preferredRow:Boolean(item.preferredRowIndex===lane.index)});
       lane.remainingFt=round1(Math.max(0,lane.remainingFt-take));
       need=round1(Math.max(0,need-take));
     }
@@ -1184,10 +1189,13 @@ function handleBedMapDragEnter(evt){
 function handleBedMapDragLeave(evt){
   if(!evt.currentTarget?.contains(evt.relatedTarget)) evt.currentTarget?.classList?.remove('drop-target');
 }
-function setCropPlacement(cropName,bedId,{lock=false}={}){
+function setCropPlacement(cropName,bedId,{lock=false,rowIndex=undefined}={}){
   if(!cropName||!bedId)return;
   const current=getPlacementPref(cropName);
-  setPlacementPref(cropName,{bedId,locked:lock?true:Boolean(current?.locked)});
+  const patch={bedId,locked:lock?true:Boolean(current?.locked)};
+  if(rowIndex!==undefined) patch.rowIndex=(rowIndex==null?null:Math.max(0,Number(rowIndex)||0));
+  else if(current?.bedId!==bedId) patch.rowIndex=null;
+  setPlacementPref(cropName,patch);
   persistBedAndWeatherState();
   renderPeoplePlanner();
   renderSelectedStructuredPanel();
@@ -1199,13 +1207,22 @@ function handleBedMapDrop(evt){
   const cropName=(evt.dataTransfer?.getData('text/plain')||'').trim();
   evt.currentTarget?.classList?.remove('drop-target');
   if(!cropName||!bedId)return;
-  setCropPlacement(cropName,bedId,{lock:false});
+  setCropPlacement(cropName,bedId,{lock:false,rowIndex:null});
+}
+function handleRowLaneDrop(evt){
+  evt.preventDefault();
+  const bedId=evt?.currentTarget?.dataset?.bedId;
+  const rowIndex=parseInt(evt?.currentTarget?.dataset?.rowIndex||'',10);
+  const cropName=(evt.dataTransfer?.getData('text/plain')||'').trim();
+  evt.currentTarget?.classList?.remove('drop-target');
+  if(!cropName||!bedId||!Number.isInteger(rowIndex))return;
+  setCropPlacement(cropName,bedId,{lock:false,rowIndex});
 }
 function toggleCropPlacementLock(cropName,bedId){
   if(!cropName||!bedId)return;
   const cur=getPlacementPref(cropName);
   const nextLocked=!(cur?.locked && cur?.bedId===bedId);
-  setPlacementPref(cropName,{bedId,locked:nextLocked});
+  setPlacementPref(cropName,{bedId,locked:nextLocked,rowIndex:cur?.rowIndex??null});
   persistBedAndWeatherState();
   renderPeoplePlanner();
   renderSelectedStructuredPanel();
@@ -1238,12 +1255,12 @@ function renderRowSnapMapHtml(allocation,bed){
       const left=((seg.startFt/snap.rowLenFt)*100).toFixed(2);
       const width=Math.max(1.2,(seg.lenFt/snap.rowLenFt)*100).toFixed(2);
       const short=escapeHtml(seg.cropName.split(' ').slice(0,2).join(' '));
-      return `<div class="pt-rowlane-seg${seg.tight?' tight':''}" style="left:${left}%;width:${width}%;background:${seg.color}" title="${escapeHtml(seg.cropName)} · ~${seg.lenFt.toFixed(1)} row-ft · spacing rows ${seg.betweenRowsIn}\"><span>${short}</span></div>`;
+      return `<div class="pt-rowlane-seg${seg.tight?' tight':''}" draggable="true" data-crop="${escapeHtml(seg.cropName)}" ondragstart="handleBedMapDragStart(event)" ondragend="handleBedMapDragEnd(event)" style="left:${left}%;width:${width}%;background:${seg.color}" title="${escapeHtml(seg.cropName)} · ~${seg.lenFt.toFixed(1)} row-ft · spacing rows ${seg.betweenRowsIn}${seg.preferredRow?' · preferred row':''}\"><span>${short}${seg.preferredRow?'*':''}</span></div>`;
     }).join('');
     return `<div>
       <div class="pt-rowlane">
         <div class="pt-rowlane-label">${escapeHtml(lane.label)}${lane.isTrellis?` <span class="trellis">T</span>`:''}</div>
-        <div class="pt-rowlane-track${lane.isTrellis?' trellis':''}" title="${lane.isTrellis?'Trellis-preferred row':''}">${segs}</div>
+        <div class="pt-rowlane-track${lane.isTrellis?' trellis':''}" data-bed-id="${escapeHtml(bed.id)}" data-row-index="${lane.index}" ondragover="handleBedMapDragOver(event)" ondragenter="handleBedMapDragEnter(event)" ondragleave="handleBedMapDragLeave(event)" ondrop="handleRowLaneDrop(event)" title="${lane.isTrellis?'Trellis-preferred row. ':''}Drop a crop here to set preferred row">${segs}</div>
       </div>
       ${lane.overflowFt?`<div class="pt-rowlane-overflow">Overflow: ~${lane.overflowFt.toFixed(1)} row-ft (bed too tight for row spacing / airflow at current allocation)</div>`:''}
     </div>`;
@@ -1274,8 +1291,9 @@ function renderPlannerBedMaps(allocation){
       const pref=getPlacementPref(e.cropName);
       const lockedHere=Boolean(pref?.locked && pref?.bedId===bed.id);
       const preferredElsewhere=pref?.bedId && pref.bedId!==bed.id;
+      const rowPrefHere=(pref?.bedId===bed.id && Number.isInteger(pref?.rowIndex))?` · row R${pref.rowIndex+1}`:'';
       return `<span class="pt-bed-legend-item ${lockedHere?'locked':''}" draggable="true" data-crop="${escapeHtml(e.cropName)}" ondragstart="handleBedMapDragStart(event)" ondragend="handleBedMapDragEnd(event)" title="Drag to another bed to move preference">
-        <span class="pt-bed-legend-swatch" style="background:${e.color}"></span>${escapeHtml(e.cropName)} · ${e.plants} plants · ${e.sqFt.toFixed(1)} sq ft${preferredElsewhere?' · split':''}
+        <span class="pt-bed-legend-swatch" style="background:${e.color}"></span>${escapeHtml(e.cropName)} · ${e.plants} plants · ${e.sqFt.toFixed(1)} sq ft${preferredElsewhere?' · split':''}${rowPrefHere}
         <button type="button" data-crop="${escapeHtml(e.cropName)}" data-bed-id="${escapeHtml(bed.id)}" onclick="toggleCropPlacementLockBtn(this)" title="${lockedHere?'Unlock placement':'Lock to this bed'}">${lockedHere?'Unlock':'Lock'}</button>
         <button type="button" data-crop="${escapeHtml(e.cropName)}" onclick="clearCropPlacementPrefBtn(this)" title="Clear saved preference">Clear</button>
       </span>`;

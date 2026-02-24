@@ -98,3 +98,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Bed map/grid visualization added for per-bed crop placement blocks (area-based MVP layout)
 - [x] Drag/drop bed map placement preferences with lock/unlock controls (manual placement override MVP)
 - [x] Row/trellis snap layout view added to bed maps (spacing-aware row-foot visualization for airflow planning)
+- [x] Row-lane drag/drop placement preferences added (drop crops onto specific rows in row/trellis layout)
