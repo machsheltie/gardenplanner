@@ -1,9 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is a single-file static web app: `planting-calendar.html`.
+This repository is a single-file static web app: `index.html`.
 
-- `planting-calendar.html`: UI markup, styles, data, and JavaScript behavior (tabs, filters, details panel) are all inlined.
+- `index.html`: UI markup, styles, data, and JavaScript behavior (tabs, filters, details panel) are all inlined.
 - No separate `src/`, `tests/`, or `assets/` directories are currently used.
 
 When editing, keep related changes grouped by section (`<style>`, HTML layout, `<script>` functions) so the file remains easy to scan.
@@ -11,8 +11,8 @@ When editing, keep related changes grouped by section (`<style>`, HTML layout, `
 ## Build, Test, and Development Commands
 No build system or package scripts are configured. Use local browser testing.
 
-- `start planting-calendar.html` (Windows): open the app directly in a browser.
-- `python -m http.server 8000` (optional): serve locally, then open `http://localhost:8000/planting-calendar.html`.
+- `start index.html` (Windows): open the app directly in a browser.
+- `python -m http.server 8000` (optional): serve locally, then open `http://localhost:8000/index.html`.
 
 If you add tooling later, document commands here (for example linting or formatting).
 

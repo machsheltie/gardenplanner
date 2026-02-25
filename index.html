@@ -306,6 +306,15 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 </div>
 <div class="pt-bed-summary" id="seasonArchiveStatus">Archive end-of-season outcomes so rotation decisions are backed by real results.</div>
 <div class="pt-bed-alloc" id="seasonArchiveSummary">No season archives saved yet.</div>
+<div class="pt-mini-ctrls">
+<label><input id="backupIncludeAssistantCfg" type="checkbox" checked onchange="handleBackupControlsChange()"> Include AI settings (endpoints/model only, no keys/tokens)</label>
+<input id="gardenBackupImportFile" type="file" accept=".json,application/json" style="display:none" onchange="handleGardenBackupFileSelected(event)">
+</div>
+<div class="pt-bed-actions">
+<button type="button" onclick="exportGardenBackup()">Export Backup JSON</button>
+<button type="button" onclick="triggerGardenBackupImport()">Import Backup JSON</button>
+</div>
+<div class="pt-bed-summary" id="gardenBackupStatus">Back up your beds, presets, archives, planner settings, and weather before major edits.</div>
 <div id="bedsList" class="pt-beds-list"></div>
 <div class="pt-bed-actions">
 <button type="button" onclick="addBedRow()">Add Bed</button>
@@ -487,6 +496,7 @@ const DEFAULT_BEDS=[
   {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good',layoutMode:'rows',rowSpacingIn:12,trellisSide:'south',trellisBandFt:1}
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
+const BACKUP_SCHEMA_VERSION=1;
 const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
 const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives'};
@@ -640,6 +650,172 @@ function safeLocalStorageSet(key,val){
 }
 function safeLocalStorageRemove(key){
   try{window.localStorage.removeItem(key);return true}catch{return false}
+}
+function normalizeRecipeTargets(input){
+  const src=(input&&typeof input==='object')?input:{};
+  return {
+    salsaPints:parseNum(src.salsaPints,0,500),
+    pickleQuarts:parseNum(src.pickleQuarts,0,500),
+    pestoBatches:parseNum(src.pestoBatches,0,500),
+    curryPots:parseNum(src.curryPots,0,500)
+  };
+}
+function setBackupStatus(msg){
+  const el=document.getElementById('gardenBackupStatus');
+  if(el) el.textContent=msg||'Back up your beds, presets, archives, planner settings, and weather before major edits.';
+}
+function getBackupIncludeAssistantCfg(){
+  return Boolean(document.getElementById('backupIncludeAssistantCfg')?.checked);
+}
+function handleBackupControlsChange(){
+  setBackupStatus(getBackupIncludeAssistantCfg()
+    ? 'Backup will include AI mode/endpoints/model (secrets excluded).'
+    : 'Backup will exclude AI settings. Beds, presets, archives, planner settings, and weather are still included.');
+}
+function syncPlannerControlsToUi(){
+  const map={
+    peopleCountInput:APP_STATE.peopleCount,
+    plannerMode:APP_STATE.plannerMode,
+    bedSpaceLimitInput:APP_STATE.bedSpaceLimit,
+    plannerPriorityMode:APP_STATE.plannerPriorityMode,
+    plannerSearch:APP_STATE.plannerSearch
+  };
+  for(const [id,val] of Object.entries(map)){ const el=document.getElementById(id); if(el!=null) el.value=String(val??''); }
+  const t=normalizeRecipeTargets(APP_STATE.recipeTargets);
+  const recipeMap={rtSalsaPints:t.salsaPints,rtPickleQuarts:t.pickleQuarts,rtPestoBatches:t.pestoBatches,rtCurryPots:t.curryPots};
+  for(const [id,val] of Object.entries(recipeMap)){ const el=document.getElementById(id); if(el) el.value=String(val); }
+}
+function syncPlannerStateFromUiForBackup(){
+  const people=document.getElementById('peopleCountInput');
+  const mode=document.getElementById('plannerMode');
+  const bedSpace=document.getElementById('bedSpaceLimitInput');
+  const priority=document.getElementById('plannerPriorityMode');
+  const search=document.getElementById('plannerSearch');
+  if(people)APP_STATE.peopleCount=Math.max(1,Math.min(20,Number(people.value)||2));
+  if(mode)APP_STATE.plannerMode=mode.value||'balanced';
+  if(bedSpace)APP_STATE.bedSpaceLimit=Math.max(0,Math.min(5000,Number(bedSpace.value)||0));
+  if(priority)APP_STATE.plannerPriorityMode=priority.value||'balanced';
+  if(search)APP_STATE.plannerSearch=search.value||'';
+  APP_STATE.recipeTargets=normalizeRecipeTargets(getRecipeTargetsFromUi());
+}
+function sanitizedAssistantConfigForBackup(cfg=APP_STATE.assistantConfig){
+  const c={...ASSISTANT_CONFIG_DEFAULTS,...(cfg||{})};
+  return {mode:c.mode,proxyEndpoint:c.proxyEndpoint||'',endpoint:c.endpoint||'',model:c.model||ASSISTANT_CONFIG_DEFAULTS.model};
+}
+function collectBackupStateSnapshot(){
+  updateBedsFromUi();
+  APP_STATE.weather=getWeatherFromUi();
+  syncPlanningYearFromUi();
+  syncPlannerStateFromUiForBackup();
+  if(typeof syncSeasonArchiveCropOutcomesFromUi==='function') syncSeasonArchiveCropOutcomesFromUi();
+  APP_STATE.assistantConfig={...APP_STATE.assistantConfig,...getAssistantConfigFromUi()};
+  return {
+    planningYear:APP_STATE.planningYear,
+    planner:{
+      peopleCount:APP_STATE.peopleCount,
+      mode:APP_STATE.plannerMode,
+      search:APP_STATE.plannerSearch,
+      bedSpaceLimit:APP_STATE.bedSpaceLimit,
+      priorityMode:APP_STATE.plannerPriorityMode,
+      recipeTargets:normalizeRecipeTargets(APP_STATE.recipeTargets)
+    },
+    beds:cloneObj(APP_STATE.beds),
+    bedPlacementPrefs:cloneObj(APP_STATE.bedPlacementPrefs||{}),
+    rowHistoryPresets:cloneObj(APP_STATE.rowHistoryPresets||{}),
+    seasonArchives:cloneObj(APP_STATE.seasonArchives||{}),
+    weather:cloneObj(APP_STATE.weather),
+    assistantConfig:getBackupIncludeAssistantCfg()?sanitizedAssistantConfigForBackup(APP_STATE.assistantConfig):null
+  };
+}
+function buildGardenBackupPayload(){
+  const data=collectBackupStateSnapshot();
+  return {
+    app:'gardenplanner',
+    schemaVersion:BACKUP_SCHEMA_VERSION,
+    exportedAt:new Date().toISOString(),
+    gardenProfile:{...GARDEN_PROFILE},
+    notes:'AI secrets are excluded from backups by design.',
+    data
+  };
+}
+function downloadTextFile(filename,text,mime='application/json'){
+  const blob=new Blob([text],{type:mime});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+function exportGardenBackup(){
+  try{
+    const payload=buildGardenBackupPayload();
+    const d=new Date();
+    const stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+    downloadTextFile(`gardenplanner-backup-${stamp}.json`,JSON.stringify(payload,null,2));
+    const archiveCount=Object.keys(APP_STATE.seasonArchives||{}).length;
+    setBackupStatus(`Backup exported (${Object.keys(APP_STATE.rowHistoryPresets||{}).length} row presets, ${archiveCount} season archives). AI secrets were excluded.`);
+  }catch(err){
+    setBackupStatus(`Backup export failed: ${err?.message||err}`);
+  }
+}
+function triggerGardenBackupImport(){
+  const el=document.getElementById('gardenBackupImportFile');
+  if(!el){ setBackupStatus('Import control not found.'); return; }
+  el.value='';
+  el.click();
+}
+function applyGardenBackupPayload(payload){
+  const root=(payload&&typeof payload==='object')?payload:{};
+  const data=(root.data&&typeof root.data==='object')?root.data:root;
+  if(root.app && root.app!=='gardenplanner') throw new Error(`Unsupported backup app "${root.app}"`);
+  APP_STATE.planningYear=Math.max(2020,Math.min(2100,Number(data.planningYear)||APP_STATE.planningYear||new Date().getFullYear()));
+  const planner=(data.planner&&typeof data.planner==='object')?data.planner:{};
+  APP_STATE.peopleCount=Math.max(1,Math.min(20,Number(planner.peopleCount)||APP_STATE.peopleCount||2));
+  APP_STATE.plannerMode=['fresh','balanced','preserve'].includes(planner.mode)?planner.mode:(APP_STATE.plannerMode||'balanced');
+  APP_STATE.plannerSearch=String(planner.search||'').slice(0,80);
+  APP_STATE.bedSpaceLimit=Math.max(0,Math.min(5000,Number(planner.bedSpaceLimit)||0));
+  APP_STATE.plannerPriorityMode=['balanced','recipe_first','fresh_first'].includes(planner.priorityMode)?planner.priorityMode:'balanced';
+  APP_STATE.recipeTargets=normalizeRecipeTargets(planner.recipeTargets||APP_STATE.recipeTargets);
+  APP_STATE.beds=normalizeBeds(data.beds);
+  APP_STATE.bedPlacementPrefs=normalizeBedPlacementPrefs(data.bedPlacementPrefs,APP_STATE.beds);
+  APP_STATE.rowHistoryPresets=normalizeRowHistoryPresets(data.rowHistoryPresets,APP_STATE.beds);
+  APP_STATE.seasonArchives=normalizeSeasonArchives(data.seasonArchives,APP_STATE.beds);
+  APP_STATE.seasonArchiveDraft={cropOutcomes:[]};
+  APP_STATE.weather=normalizeWeatherState(data.weather||APP_STATE.weather);
+  if(data.assistantConfig && typeof data.assistantConfig==='object'){
+    const imported={...ASSISTANT_CONFIG_DEFAULTS,...data.assistantConfig,apiKey:'',proxyToken:''};
+    APP_STATE.assistantConfig={...APP_STATE.assistantConfig,...imported};
+    safeLocalStorageSet(LS_KEYS.assistantCfg,JSON.stringify(APP_STATE.assistantConfig));
+  }
+  renderBedsEditor();
+  renderRowHistoryPresetControls();
+  renderSeasonArchiveControls();
+  syncWeatherUiFromState();
+  syncPlannerControlsToUi();
+  if(typeof syncAssistantConfigToUi==='function') syncAssistantConfigToUi();
+  persistBedAndWeatherState();
+  renderRecipeDemandSummary();
+  renderPeoplePlanner();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+  return {
+    rowPresetCount:Object.keys(APP_STATE.rowHistoryPresets||{}).length,
+    seasonArchiveCount:Object.keys(APP_STATE.seasonArchives||{}).length,
+    bedCount:(APP_STATE.beds||[]).length,
+    hasAssistantCfg:Boolean(data.assistantConfig)
+  };
+}
+async function handleGardenBackupFileSelected(evt){
+  const file=evt?.target?.files?.[0];
+  if(!file){ setBackupStatus('Import canceled.'); return; }
+  try{
+    const txt=await file.text();
+    const payload=JSON.parse(txt);
+    const res=applyGardenBackupPayload(payload);
+    setBackupStatus(`Imported backup from ${file.name}: ${res.bedCount} beds, ${res.rowPresetCount} row presets, ${res.seasonArchiveCount} season archives${res.hasAssistantCfg?' + AI settings (no secrets)':''}.`);
+  }catch(err){
+    setBackupStatus(`Backup import failed: ${err?.message||err}`);
+  }
 }
 function parseNum(v,min=0,max=9999){
   const n=Number(v);
@@ -2442,6 +2618,7 @@ renderTodaySummary();
 filterTable();
 loadBedAndWeatherState();
 loadAssistantConfig();
+handleBackupControlsChange();
 handlePlannerControls();
 renderAssistantPanel();
 </script>
