@@ -102,6 +102,19 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .tdx-item b{display:block;color:#6b7b6b;font-size:.72em;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
 .tdx-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .tdx-tags span{background:#eef6ea;color:#2d5a27;border-radius:999px;padding:3px 8px;font-size:.72em;font-weight:600}
+.symx{margin-top:10px;background:#fff;border:1px solid #e5ece4;border-radius:10px;padding:10px}
+.symx-head{font-size:.78em;font-weight:700;color:#2d5a27;margin-bottom:6px}
+.symx-row{display:flex;gap:6px;flex-wrap:wrap}
+.symx-row input{flex:1;min-width:220px;padding:7px 9px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.8em;background:#fff}
+.symx-row button{padding:7px 9px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.78em;cursor:pointer}
+.symx-row button:hover{border-color:#4a8c3f;background:#f0f7f0}
+.symx-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.symx-chips button{border:1px solid #d8e4d4;background:#f6faf4;color:#355335;border-radius:999px;padding:4px 8px;font-size:.72em;cursor:pointer}
+.symx-chips button:hover{background:#eaf5e4;border-color:#bcd3b8}
+.symx-result{margin-top:8px;background:#f8fbf6;border:1px solid #e0e8de;border-radius:8px;padding:8px 10px;font-size:.78em;line-height:1.35;color:#4f5f4f}
+.symx-issue{padding:6px 0;border-top:1px dashed #dbe6d7}
+.symx-issue:first-child{border-top:none;padding-top:0}
+.symx-issue b{color:#2d5a27}
 .pt-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
 .pt-card{background:#fff;border:2px solid #d4ddd4;border-radius:12px;padding:14px}
 .pt-card h3{font-size:1em;color:#2d5a27;margin-bottom:10px}
@@ -1830,6 +1843,54 @@ function findIpmIssuesByQuestion(sc,q){
   });
   return hits.slice(0,3);
 }
+function getSymptomLookupChips(sc,limit=10){
+  const issues=sc?.ipm?.issueRecords||[];
+  const seen=new Set();
+  const out=[];
+  for(const issue of issues){
+    for(const s of (issue.symptoms||[])){
+      const key=String(s||'').toLowerCase().trim();
+      if(!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(String(s));
+      if(out.length>=limit) return out;
+    }
+  }
+  return out;
+}
+function buildSymptomLookupResultHtml(crop,query=''){
+  const sc=getStructuredCrop(crop);
+  const issues=sc?.ipm?.issueRecords||[];
+  if(!issues.length) return 'No structured IPM issue records are available for this crop yet.';
+  const q=String(query||'').trim();
+  const matched=q?findIpmIssuesByQuestion(sc,q):issues.slice(0,3);
+  if(q && !matched.length){
+    return `No direct IPM issue match for “${escapeHtml(q)}”. Try a symptom phrase from the chips below or ask the Master Gardener panel.`;
+  }
+  const intro=q?`Likely IPM matches for “${escapeHtml(q)}”:`:'Top IPM issues for this crop:';
+  const blocks=matched.map(issue=>{
+    const symptoms=(issue.symptoms||[]).slice(0,2).join('; ');
+    const scout=(issue.scout||[]).slice(0,2).join('; ');
+    const prevention=(issue.prevention||[]).slice(0,2).join('; ');
+    const threshold=issue.actionThreshold||'No threshold note yet.';
+    return `<div class="symx-issue"><b>${escapeHtml(issue.label)}</b> <span style="color:#6b7b6b">(${escapeHtml(issue.type)})</span>${symptoms?`<br><span>Symptoms: ${escapeHtml(symptoms)}</span>`:''}${scout?`<br><span>Scout: ${escapeHtml(scout)}</span>`:''}${prevention?`<br><span>Prevention: ${escapeHtml(prevention)}</span>`:''}<br><span style="color:#92400e">Threshold: ${escapeHtml(threshold)}</span></div>`;
+  }).join('');
+  return `<div>${intro}</div>${blocks}`;
+}
+function runSymptomLookup(queryOverride=''){
+  const crop=getSelectedCrop();
+  const out=document.getElementById('symptomLookupResult');
+  if(!crop || !out) return;
+  const input=document.getElementById('symptomLookupInput');
+  const q=String(queryOverride || input?.value || '').trim();
+  if(input && queryOverride) input.value=q;
+  out.innerHTML=buildSymptomLookupResultHtml(crop,q);
+}
+function useSymptomLookupChip(symptom){
+  const input=document.getElementById('symptomLookupInput');
+  if(input) input.value=String(symptom||'');
+  runSymptomLookup(String(symptom||''));
+}
 function getStructuredCrop(crop){
   if(!crop)return null;
   const key=crop.name;
@@ -2355,7 +2416,9 @@ function buildStructuredPanelHtml(crop){
   const weather=weatherRiskFlags(crop);
   const weatherBox=weather.messages.length?`<div class="tdx-item"><b>Weather / Clay Alert</b>${escapeHtml(weather.messages[0])}</div>`:'';
   const plannerBox=plan?`<div class="tdx-item"><b>People Planner (${APP_STATE.peopleCount}, ${APP_STATE.plannerMode})</b>${plan.recPlants} plants (~${plan.areaSqFt??'N/A'} sq ft)<br><span style="color:#6b7b6b">Range ${plan.minPlants}-${plan.maxPlants}${plan.recipeBoost?.plantsRounded?` · Recipe +${plan.recipeBoost.plantsRounded}`:''}</span></div>`:'';
-  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${weatherBox}${recipeProfiles}${ipmIssues}${varietyPicks}${clay}</div>${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
+  const symptomChips=getSymptomLookupChips(sc,10);
+  const symptomLookup=(sc.ipm?.issueRecords||[]).length?`<div class="symx"><div class="symx-head">Symptom Lookup (MVP)</div><div class="symx-row"><input id="symptomLookupInput" type="text" placeholder="Describe what you see (e.g., yellow spots lower leaves)" onkeydown="if(event.key==='Enter'){runSymptomLookup()}"><button type="button" onclick="runSymptomLookup()">Analyze</button><button type="button" onclick="runSymptomLookup('')">Top Issues</button></div>${symptomChips.length?`<div class="symx-chips">${symptomChips.map(s=>`<button type="button" onclick="useSymptomLookupChip(${JSON.stringify(s).replace(/"/g,'&quot;')})">${escapeHtml(s)}</button>`).join('')}</div>`:''}<div id="symptomLookupResult" class="symx-result">${buildSymptomLookupResultHtml(crop,'')}</div></div>`:'';
+  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${weatherBox}${recipeProfiles}${ipmIssues}${varietyPicks}${clay}</div>${symptomLookup}${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
 }
 function getSelectedCrop(){return Number.isInteger(APP_STATE.selectedCropIndex)?V[APP_STATE.selectedCropIndex]||null:null}
 function getAssistantConfigFromUi(){
