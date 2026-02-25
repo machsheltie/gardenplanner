@@ -115,9 +115,14 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 .pt-mini-card{background:#f9fbf8;border:1px solid #e0e8de;border-radius:10px;padding:10px}
 .pt-mini-card h4{font-size:.84em;color:#2d5a27;margin-bottom:8px}
+.pt-subhead{margin-top:10px;font-size:.76em;font-weight:700;color:#2d5a27;text-transform:uppercase;letter-spacing:.04em}
+.pt-callout{font-size:.76em;color:#4b5a4b;background:#f6faf4;border:1px solid #dfe8dc;border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.35}
+.pt-callout.warn{background:#fffbeb;border-color:#fde68a;color:#7c5200}
 .pt-mini-ctrls{display:grid;grid-template-columns:repeat(2,minmax(110px,1fr));gap:8px}
 .pt-mini-ctrls label{font-size:.74em;color:#4f5f4f}
-.pt-mini-ctrls input,.pt-mini-ctrls select{width:100%;margin-top:4px;padding:7px 8px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.8em;background:#fff}
+.pt-mini-ctrls input:not([type="checkbox"]):not([type="file"]),.pt-mini-ctrls select{width:100%;margin-top:4px;padding:7px 8px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.8em;background:#fff}
+.pt-mini-ctrls input[type="checkbox"]{width:auto;margin-right:6px;vertical-align:middle;accent-color:#4a8c3f}
+.pt-mini-ctrls textarea{width:100%;margin-top:4px;padding:7px 8px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.8em;background:#fff;resize:vertical}
 .pt-alert-box{font-size:.78em;color:#4b5a4b;background:#f6faf4;border:1px solid #dfe8dc;border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.35}
 .pt-alert-box .warn{color:#92400e;font-weight:700}
 .pt-alert-box .good{color:#166534;font-weight:700}
@@ -131,6 +136,8 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-bed-row-extra label{font-size:.72em;color:#4f5f4f}
 .pt-bed-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .pt-bed-actions button{padding:7px 9px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.78em;cursor:pointer}
+.pt-bed-actions button.danger{border-color:#fca5a5;background:#fff5f5;color:#991b1b}
+.pt-bed-actions button.warn{border-color:#fde68a;background:#fffbeb;color:#7c5200}
 .pt-bed-summary,.pt-bed-alloc{font-size:.78em;color:#4f5f4f;background:#f8fbf6;border:1px solid #e0e8de;border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.35}
 .pt-bed-alloc code{font-size:.9em}
 .pt-bed-maps{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
@@ -271,6 +278,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 </div>
 <div class="pt-mini-card">
 <h4>Beds (MVP)</h4>
+<div class="pt-subhead">Row History Presets</div>
 <div class="pt-mini-ctrls">
 <label>Planning Year <input id="rowHistoryPlanYear" type="number" min="2020" max="2100" value="2026" oninput="handleRowHistoryPresetUiChange()"></label>
 <label>Preset Name <input id="rowHistoryPresetName" type="text" maxlength="40" placeholder="2025 bed state" oninput="handleRowHistoryPresetUiChange()"></label>
@@ -280,9 +288,10 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <button type="button" onclick="saveRowHistoryPreset()">Save Row History</button>
 <button type="button" onclick="loadSelectedRowHistoryPreset()">Load Selected</button>
 <button type="button" onclick="loadPreviousYearRowHistoryPreset()">Load Prev Year</button>
-<button type="button" onclick="deleteSelectedRowHistoryPreset()">Delete Preset</button>
+<button type="button" class="danger" onclick="deleteSelectedRowHistoryPreset()">Delete Preset</button>
 </div>
 <div class="pt-bed-summary" id="rowHistoryPresetStatus">Save a season/year snapshot of row history, then load it next season.</div>
+<div class="pt-subhead">Season Archive</div>
 <div class="pt-mini-ctrls">
 <label>Archive Name <input id="seasonArchiveName" type="text" maxlength="48" placeholder="2025 season review" oninput="handleSeasonArchiveUiChange()"></label>
 <label>Season Archive <select id="seasonArchiveSelect" onchange="handleSeasonArchiveSelectionChange()"><option value="">(none)</option></select></label>
@@ -301,18 +310,20 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <div class="pt-bed-actions">
 <button type="button" onclick="saveSeasonArchive()">Save Season Archive</button>
 <button type="button" onclick="loadSelectedSeasonArchiveToForm()">Load Archive Notes</button>
-<button type="button" onclick="applySelectedSeasonArchiveRowHistory()">Apply Archive Row History</button>
-<button type="button" onclick="deleteSelectedSeasonArchive()">Delete Archive</button>
+<button type="button" class="warn" onclick="applySelectedSeasonArchiveRowHistory()">Apply Archive Row History</button>
+<button type="button" class="danger" onclick="deleteSelectedSeasonArchive()">Delete Archive</button>
 </div>
 <div class="pt-bed-summary" id="seasonArchiveStatus">Archive end-of-season outcomes so rotation decisions are backed by real results.</div>
 <div class="pt-bed-alloc" id="seasonArchiveSummary">No season archives saved yet.</div>
+<div class="pt-subhead">Backup / Restore</div>
+<div class="pt-callout warn">Importing a backup overwrites your current local beds, presets, archives, planner settings, and weather. Export a backup first if you want a rollback point.</div>
 <div class="pt-mini-ctrls">
 <label><input id="backupIncludeAssistantCfg" type="checkbox" checked onchange="handleBackupControlsChange()"> Include AI settings (endpoints/model only, no keys/tokens)</label>
 <input id="gardenBackupImportFile" type="file" accept=".json,application/json" style="display:none" onchange="handleGardenBackupFileSelected(event)">
 </div>
 <div class="pt-bed-actions">
 <button type="button" onclick="exportGardenBackup()">Export Backup JSON</button>
-<button type="button" onclick="triggerGardenBackupImport()">Import Backup JSON</button>
+<button type="button" class="warn" onclick="triggerGardenBackupImport()">Import Backup JSON</button>
 </div>
 <div class="pt-bed-summary" id="gardenBackupStatus">Back up your beds, presets, archives, planner settings, and weather before major edits.</div>
 <div id="bedsList" class="pt-beds-list"></div>
@@ -651,6 +662,9 @@ function safeLocalStorageSet(key,val){
 function safeLocalStorageRemove(key){
   try{window.localStorage.removeItem(key);return true}catch{return false}
 }
+function confirmUiAction(message){
+  try{return window.confirm(message)}catch{return true}
+}
 function normalizeRecipeTargets(input){
   const src=(input&&typeof input==='object')?input:{};
   return {
@@ -811,6 +825,15 @@ async function handleGardenBackupFileSelected(evt){
   try{
     const txt=await file.text();
     const payload=JSON.parse(txt);
+    const root=(payload&&typeof payload==='object')?payload:{};
+    const data=(root.data&&typeof root.data==='object')?root.data:root;
+    const backupName=root.app||'unknown';
+    const rowPresetCt=Object.keys((data.rowHistoryPresets&&typeof data.rowHistoryPresets==='object')?data.rowHistoryPresets:{}).length;
+    const seasonArchiveCt=Object.keys((data.seasonArchives&&typeof data.seasonArchives==='object')?data.seasonArchives:{}).length;
+    const bedCt=Array.isArray(data.beds)?data.beds.length:0;
+    const plannerYear=data.planningYear?` Planning year: ${data.planningYear}.`:'';
+    const ok=confirmUiAction(`Import backup "${file.name}" (${backupName})? This will overwrite current local data.\n\nBeds: ${bedCt}\nRow-history presets: ${rowPresetCt}\nSeason archives: ${seasonArchiveCt}.${plannerYear}`);
+    if(!ok){ setBackupStatus(`Import canceled for ${file.name}.`); return; }
     const res=applyGardenBackupPayload(payload);
     setBackupStatus(`Imported backup from ${file.name}: ${res.bedCount} beds, ${res.rowPresetCount} row presets, ${res.seasonArchiveCount} season archives${res.hasAssistantCfg?' + AI settings (no secrets)':''}.`);
   }catch(err){
@@ -1103,6 +1126,7 @@ function loadSelectedRowHistoryPreset(){
   updateBedsFromUi();
   const name=rowHistoryPresetSelectValue() || rowHistoryPresetNameValue();
   if(!name){ setRowHistoryPresetStatus('Select a saved preset to load.'); return; }
+  if(!confirmUiAction(`Load row-history preset "${name}"? This will overwrite the current row-history dropdown values for matching beds.`)) return;
   applyRowHistoryPreset(name);
 }
 function findPreviousYearPresetName(prevYear){
@@ -1122,11 +1146,13 @@ function loadPreviousYearRowHistoryPreset(){
   }
   const sel=document.getElementById('rowHistoryPresetSelect');
   if(sel) sel.value=name;
+  if(!confirmUiAction(`Load previous-year preset "${name}"? This will overwrite the current row-history dropdown values for matching beds.`)) return;
   applyRowHistoryPreset(name);
 }
 function deleteSelectedRowHistoryPreset(){
   const name=rowHistoryPresetSelectValue();
   if(!name){ setRowHistoryPresetStatus('Select a preset to delete.'); return; }
+  if(!confirmUiAction(`Delete row-history preset "${name}"? This cannot be undone unless you restore from a backup.`)) return;
   const next={...(APP_STATE.rowHistoryPresets||{})};
   delete next[name];
   APP_STATE.rowHistoryPresets=normalizeRowHistoryPresets(next,APP_STATE.beds);
@@ -1155,6 +1181,11 @@ function syncSeasonArchiveForm(entry=null){
 }
 function getSeasonArchiveDraftCropOutcomes(){
   return normalizeSeasonArchiveCropOutcomes(APP_STATE.seasonArchiveDraft?.cropOutcomes||[]);
+}
+function hasSeasonArchiveDraftContent(){
+  const form=seasonArchiveFormDataFromUi();
+  const outcomes=getSeasonArchiveDraftCropOutcomes();
+  return Boolean(form.yieldSummary||form.notes||outcomes.length);
 }
 function syncSeasonArchiveCropOutcomesFromUi(){
   const rows=[...document.querySelectorAll('#seasonArchiveCropOutcomesEditor .sa-co-row')];
@@ -1212,6 +1243,8 @@ function removeSeasonArchiveCropOutcomeRow(index){
   handleSeasonArchiveUiChange();
 }
 function seedSeasonArchiveCropOutcomesFromPlanner(){
+  const existing=getSeasonArchiveDraftCropOutcomes();
+  if(existing.length && !confirmUiAction(`Replace the current crop outcome draft rows (${existing.length}) with a new seeded list from the planner?`)) return;
   const rows=getPlannerRows({ignoreSearch:true}).slice(0,24);
   const seeded=rows.map(r=>({cropName:r.crop.name,outcome:'good',variety:'',yieldAmount:'',pestIssue:'',diseaseIssue:'',notes:''}));
   APP_STATE.seasonArchiveDraft={cropOutcomes:normalizeSeasonArchiveCropOutcomes(seeded)};
@@ -1347,6 +1380,7 @@ function loadSelectedSeasonArchiveToForm(){
   if(!name){ setSeasonArchiveStatus('Select an archive to load into the notes form.'); return; }
   const a=APP_STATE.seasonArchives?.[name];
   if(!a){ setSeasonArchiveStatus(`Archive "${name}" not found.`); return; }
+  if(hasSeasonArchiveDraftContent() && !confirmUiAction(`Load archive "${name}" into the form? Unsaved archive form edits/draft crop outcomes will be replaced.`)) return;
   syncSeasonArchiveForm(a);
   setSeasonArchiveStatus(`Loaded archive notes for "${name}" into the form. Use Save if you edit it.`);
 }
@@ -1356,12 +1390,14 @@ function applySelectedSeasonArchiveRowHistory(){
   if(!name){ setSeasonArchiveStatus('Select an archive to apply its row history.'); return; }
   const a=APP_STATE.seasonArchives?.[name];
   if(!a){ setSeasonArchiveStatus(`Archive "${name}" not found.`); return; }
+  if(!confirmUiAction(`Apply archived row history from "${name}"? This will overwrite current row-history dropdown values for matching beds.`)) return;
   const applied=applyRowHistorySnapshotToBeds(a.rowHistorySnapshot||[],`archive "${name}"`);
   renderSeasonArchiveControls(`Applied row history from archive "${name}" to ${applied} bed${applied===1?'':'s'}.`);
 }
 function deleteSelectedSeasonArchive(){
   const name=seasonArchiveSelectValue();
   if(!name){ setSeasonArchiveStatus('Select an archive to delete.'); return; }
+  if(!confirmUiAction(`Delete season archive "${name}"? This removes notes, crop outcomes, and archived row history for that season.`)) return;
   const next={...(APP_STATE.seasonArchives||{})};
   delete next[name];
   APP_STATE.seasonArchives=normalizeSeasonArchives(next,APP_STATE.beds);
