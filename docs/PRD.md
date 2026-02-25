@@ -107,3 +107,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] QA/polish pass on backup/archive workflow (import overwrite warnings, destructive action confirmations, UI readability tweaks)
 - [x] Structured IPM issue records added (symptoms/scouting/prevention/action thresholds) and surfaced in crop panel + assistant responses (MVP coverage)
 - [x] Symptom lookup UI added to crop detail panel (interactive symptom chips + free-text lookup against structured IPM records)
+- [x] Observation log workflow added (date/crop/symptom/notes/photo ref) with local persistence, assistant context, and symptom-lookup handoff

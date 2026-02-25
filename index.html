@@ -115,6 +115,15 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .symx-issue{padding:6px 0;border-top:1px dashed #dbe6d7}
 .symx-issue:first-child{border-top:none;padding-top:0}
 .symx-issue b{color:#2d5a27}
+.obx-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.obx-item{background:#fff;border:1px solid #e0e8de;border-radius:8px;padding:8px 10px}
+.obx-head{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.obx-head b{color:#2d5a27;font-size:.82em}
+.obx-meta{font-size:.72em;color:#5b6b5b}
+.obx-body{font-size:.78em;color:#4f5f4f;line-height:1.35;margin-top:4px}
+.obx-actions{display:flex;gap:6px;flex-wrap:wrap}
+.obx-actions button{padding:4px 7px;border:1px solid #d4ddd4;border-radius:999px;background:#fff;font-size:.68em;cursor:pointer}
+.obx-actions button.danger{border-color:#fca5a5;background:#fff5f5;color:#991b1b}
 .pt-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
 .pt-card{background:#fff;border:2px solid #d4ddd4;border-radius:12px;padding:14px}
 .pt-card h3{font-size:1em;color:#2d5a27;margin-bottom:10px}
@@ -339,6 +348,23 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <button type="button" class="warn" onclick="triggerGardenBackupImport()">Import Backup JSON</button>
 </div>
 <div class="pt-bed-summary" id="gardenBackupStatus">Back up your beds, presets, archives, planner settings, and weather before major edits.</div>
+<div class="pt-subhead">Observation Log</div>
+<div class="pt-mini-ctrls">
+<label>Date <input id="obsDate" type="date"></label>
+<label>Crop <select id="obsCrop"></select></label>
+<label>Symptom / Issue <input id="obsSymptom" type="text" maxlength="140" placeholder="yellow leaf spots, chewing, wilt..."></label>
+<label>Photo Ref <input id="obsPhotoRef" type="text" maxlength="220" placeholder="file name, path, or URL"></label>
+</div>
+<div class="pt-mini-ctrls">
+<label style="grid-column:1/-1">Notes<textarea id="obsNotes" rows="2" maxlength="1200" placeholder="What you observed, bed/row, weather context, what you did..."></textarea></label>
+</div>
+<div class="pt-bed-actions">
+<button type="button" onclick="saveObservationLogEntry()">Add Observation</button>
+<button type="button" onclick="prefillObservationFromSelectedCrop()">Use Selected Crop</button>
+<button type="button" onclick="clearObservationLogForm()">Clear Form</button>
+</div>
+<div class="pt-bed-summary" id="observationLogStatus">Log field observations (including photo references) to build in-season memory for troubleshooting and next-year planning.</div>
+<div class="obx-list" id="observationLogList"></div>
 <div id="bedsList" class="pt-beds-list"></div>
 <div class="pt-bed-actions">
 <button type="button" onclick="addBedRow()">Add Bed</button>
@@ -521,9 +547,9 @@ const DEFAULT_BEDS=[
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
 const BACKUP_SCHEMA_VERSION=1;
-const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
+const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},observationLogs:[],weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
-const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives'};
+const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives',observationLogs:'gardenPlanner.observationLogs'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
 const ROTATION_FAMILY_LABELS={
@@ -750,6 +776,7 @@ function collectBackupStateSnapshot(){
     bedPlacementPrefs:cloneObj(APP_STATE.bedPlacementPrefs||{}),
     rowHistoryPresets:cloneObj(APP_STATE.rowHistoryPresets||{}),
     seasonArchives:cloneObj(APP_STATE.seasonArchives||{}),
+    observationLogs:cloneObj(APP_STATE.observationLogs||[]),
     weather:cloneObj(APP_STATE.weather),
     assistantConfig:getBackupIncludeAssistantCfg()?sanitizedAssistantConfigForBackup(APP_STATE.assistantConfig):null
   };
@@ -780,7 +807,8 @@ function exportGardenBackup(){
     const stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
     downloadTextFile(`gardenplanner-backup-${stamp}.json`,JSON.stringify(payload,null,2));
     const archiveCount=Object.keys(APP_STATE.seasonArchives||{}).length;
-    setBackupStatus(`Backup exported (${Object.keys(APP_STATE.rowHistoryPresets||{}).length} row presets, ${archiveCount} season archives). AI secrets were excluded.`);
+    const obsCount=(APP_STATE.observationLogs||[]).length;
+    setBackupStatus(`Backup exported (${Object.keys(APP_STATE.rowHistoryPresets||{}).length} row presets, ${archiveCount} season archives, ${obsCount} observations). AI secrets were excluded.`);
   }catch(err){
     setBackupStatus(`Backup export failed: ${err?.message||err}`);
   }
@@ -808,6 +836,7 @@ function applyGardenBackupPayload(payload){
   APP_STATE.rowHistoryPresets=normalizeRowHistoryPresets(data.rowHistoryPresets,APP_STATE.beds);
   APP_STATE.seasonArchives=normalizeSeasonArchives(data.seasonArchives,APP_STATE.beds);
   APP_STATE.seasonArchiveDraft={cropOutcomes:[]};
+  APP_STATE.observationLogs=normalizeObservationLogs(data.observationLogs);
   APP_STATE.weather=normalizeWeatherState(data.weather||APP_STATE.weather);
   if(data.assistantConfig && typeof data.assistantConfig==='object'){
     const imported={...ASSISTANT_CONFIG_DEFAULTS,...data.assistantConfig,apiKey:'',proxyToken:''};
@@ -817,6 +846,8 @@ function applyGardenBackupPayload(payload){
   renderBedsEditor();
   renderRowHistoryPresetControls();
   renderSeasonArchiveControls();
+  renderObservationLogPanel();
+  clearObservationLogForm();
   syncWeatherUiFromState();
   syncPlannerControlsToUi();
   if(typeof syncAssistantConfigToUi==='function') syncAssistantConfigToUi();
@@ -828,6 +859,7 @@ function applyGardenBackupPayload(payload){
   return {
     rowPresetCount:Object.keys(APP_STATE.rowHistoryPresets||{}).length,
     seasonArchiveCount:Object.keys(APP_STATE.seasonArchives||{}).length,
+    observationCount:(APP_STATE.observationLogs||[]).length,
     bedCount:(APP_STATE.beds||[]).length,
     hasAssistantCfg:Boolean(data.assistantConfig)
   };
@@ -843,12 +875,13 @@ async function handleGardenBackupFileSelected(evt){
     const backupName=root.app||'unknown';
     const rowPresetCt=Object.keys((data.rowHistoryPresets&&typeof data.rowHistoryPresets==='object')?data.rowHistoryPresets:{}).length;
     const seasonArchiveCt=Object.keys((data.seasonArchives&&typeof data.seasonArchives==='object')?data.seasonArchives:{}).length;
+    const observationCt=Array.isArray(data.observationLogs)?data.observationLogs.length:0;
     const bedCt=Array.isArray(data.beds)?data.beds.length:0;
     const plannerYear=data.planningYear?` Planning year: ${data.planningYear}.`:'';
-    const ok=confirmUiAction(`Import backup "${file.name}" (${backupName})? This will overwrite current local data.\n\nBeds: ${bedCt}\nRow-history presets: ${rowPresetCt}\nSeason archives: ${seasonArchiveCt}.${plannerYear}`);
+    const ok=confirmUiAction(`Import backup "${file.name}" (${backupName})? This will overwrite current local data.\n\nBeds: ${bedCt}\nRow-history presets: ${rowPresetCt}\nSeason archives: ${seasonArchiveCt}\nObservations: ${observationCt}.${plannerYear}`);
     if(!ok){ setBackupStatus(`Import canceled for ${file.name}.`); return; }
     const res=applyGardenBackupPayload(payload);
-    setBackupStatus(`Imported backup from ${file.name}: ${res.bedCount} beds, ${res.rowPresetCount} row presets, ${res.seasonArchiveCount} season archives${res.hasAssistantCfg?' + AI settings (no secrets)':''}.`);
+    setBackupStatus(`Imported backup from ${file.name}: ${res.bedCount} beds, ${res.rowPresetCount} row presets, ${res.seasonArchiveCount} season archives, ${res.observationCount} observations${res.hasAssistantCfg?' + AI settings (no secrets)':''}.`);
   }catch(err){
     setBackupStatus(`Backup import failed: ${err?.message||err}`);
   }
@@ -1027,6 +1060,132 @@ function normalizeSeasonArchiveCropOutcomes(rows){
     diseaseIssue:String(r?.diseaseIssue||'').slice(0,120),
     notes:String(r?.notes||'').slice(0,220)
   })).filter(r=>r.cropName || r.variety || r.yieldAmount || r.pestIssue || r.diseaseIssue || r.notes);
+}
+function todayIsoLocal(){
+  const d=new Date();
+  const off=d.getTimezoneOffset()*60000;
+  return new Date(d.getTime()-off).toISOString().slice(0,10);
+}
+function normalizeObservationLogs(logs){
+  const arr=Array.isArray(logs)?logs:[];
+  const validCropNames=new Set(V.map(v=>v.name));
+  const rows=arr.map(r=>({
+    id:String(r?.id||uid('obs')).slice(0,48),
+    date:/^\d{4}-\d{2}-\d{2}$/.test(String(r?.date||''))?String(r.date):todayIsoLocal(),
+    cropName:validCropNames.has(String(r?.cropName||''))?String(r.cropName):'',
+    symptom:String(r?.symptom||'').trim().slice(0,140),
+    notes:String(r?.notes||'').trim().slice(0,1200),
+    photoRef:String(r?.photoRef||'').trim().slice(0,220),
+    createdAt:String(r?.createdAt||r?.date||todayIsoLocal()),
+    updatedAt:String(r?.updatedAt||r?.createdAt||r?.date||todayIsoLocal())
+  })).filter(r=>r.cropName || r.symptom || r.notes || r.photoRef);
+  const seen=new Set();
+  return rows
+    .filter(r=>{ if(seen.has(r.id)) return false; seen.add(r.id); return true; })
+    .sort((a,b)=>String(b.date).localeCompare(String(a.date)) || String(b.updatedAt).localeCompare(String(a.updatedAt)) || a.id.localeCompare(b.id));
+}
+function setObservationLogStatus(msg){
+  const el=document.getElementById('observationLogStatus');
+  if(el) el.textContent=msg||'Log field observations (including photo references) to build in-season memory for troubleshooting and next-year planning.';
+}
+function getRecentObservationLogs(limit=20,cropName=''){
+  const rows=normalizeObservationLogs(APP_STATE.observationLogs||[]);
+  const filterName=String(cropName||'');
+  return (filterName?rows.filter(r=>r.cropName===filterName):rows).slice(0,Math.max(0,limit|0));
+}
+function populateObservationCropSelect(selected=''){
+  const sel=document.getElementById('obsCrop');
+  if(!sel) return;
+  const current=selected || sel.value || '';
+  sel.innerHTML=`<option value="">(select crop)</option>`+V.map(v=>`<option value="${escapeHtml(v.name)}"${v.name===current?' selected':''}>${escapeHtml(v.name)} (${escapeHtml(v.cat)})</option>`).join('');
+  if(current && !V.some(v=>v.name===current)) sel.value='';
+}
+function observationFormDataFromUi(){
+  return {
+    date:String(document.getElementById('obsDate')?.value||todayIsoLocal()),
+    cropName:String(document.getElementById('obsCrop')?.value||''),
+    symptom:String(document.getElementById('obsSymptom')?.value||'').trim(),
+    photoRef:String(document.getElementById('obsPhotoRef')?.value||'').trim(),
+    notes:String(document.getElementById('obsNotes')?.value||'').trim()
+  };
+}
+function clearObservationLogForm(keepCrop=false){
+  const cropVal=keepCrop?String(document.getElementById('obsCrop')?.value||''):'';
+  const dateEl=document.getElementById('obsDate');
+  if(dateEl) dateEl.value=todayIsoLocal();
+  populateObservationCropSelect(cropVal);
+  if(!keepCrop && document.getElementById('obsCrop')) document.getElementById('obsCrop').value='';
+  const ids=['obsSymptom','obsPhotoRef','obsNotes'];
+  ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+}
+function prefillObservationFromSelectedCrop(){
+  const crop=getSelectedCrop();
+  populateObservationCropSelect(crop?.name||'');
+  const dateEl=document.getElementById('obsDate');
+  if(dateEl && !dateEl.value) dateEl.value=todayIsoLocal();
+  setObservationLogStatus(crop?`Observation form prefilled with selected crop: ${crop.name}.`:'No crop selected in “Varieties & Tips”; choose a crop from the dropdown.');
+}
+function saveObservationLogEntry(){
+  populateObservationCropSelect();
+  const row=observationFormDataFromUi();
+  if(!row.cropName){ setObservationLogStatus('Choose a crop before saving an observation.'); return; }
+  if(!row.symptom && !row.notes && !row.photoRef){ setObservationLogStatus('Add at least a symptom, notes, or photo reference before saving.'); return; }
+  APP_STATE.observationLogs=normalizeObservationLogs([{...row,id:uid('obs'),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},...(APP_STATE.observationLogs||[])]);
+  persistBedAndWeatherState();
+  renderObservationLogPanel();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+  clearObservationLogForm(true);
+  setObservationLogStatus(`Saved observation for ${row.cropName}${row.symptom?` (${row.symptom})`:''}.`);
+}
+function deleteObservationLogEntry(id){
+  const row=(APP_STATE.observationLogs||[]).find(r=>r.id===id);
+  if(!row) return;
+  if(!confirmUiAction(`Delete observation for ${row.cropName||'crop'} on ${row.date}?`)) return;
+  APP_STATE.observationLogs=normalizeObservationLogs((APP_STATE.observationLogs||[]).filter(r=>r.id!==id));
+  persistBedAndWeatherState();
+  renderObservationLogPanel();
+  renderSelectedStructuredPanel();
+  renderAssistantPanel();
+  setObservationLogStatus(`Deleted observation from ${row.date}.`);
+}
+function useObservationForSymptomLookup(id){
+  const row=(APP_STATE.observationLogs||[]).find(r=>r.id===id);
+  if(!row) return;
+  if(row.cropName){
+    const idx=V.findIndex(v=>v.name===row.cropName);
+    if(idx>=0){
+      const el=document.querySelector(`.vi[data-i="${idx}"]`);
+      showDet(idx,el||null);
+    }
+  }
+  setTimeout(()=>{
+    if(row.symptom && typeof runSymptomLookup==='function'){
+      const input=document.getElementById('symptomLookupInput');
+      if(input) input.value=row.symptom;
+      runSymptomLookup(row.symptom);
+    }
+  },0);
+}
+function renderObservationLogPanel(){
+  const listEl=document.getElementById('observationLogList');
+  const dateEl=document.getElementById('obsDate');
+  if(dateEl && !dateEl.value) dateEl.value=todayIsoLocal();
+  populateObservationCropSelect(document.getElementById('obsCrop')?.value||'');
+  if(!listEl) return;
+  const rows=getRecentObservationLogs(8);
+  const selectedCrop=getSelectedCrop()?.name||'';
+  if(!rows.length){
+    listEl.innerHTML='<div class="pt-bed-summary">No observations logged yet. Add a field note with symptom/notes/photo ref.</div>';
+    return;
+  }
+  listEl.innerHTML=rows.map(r=>{
+    const sym=r.symptom?`<div>Symptom: ${escapeHtml(r.symptom)}</div>`:'';
+    const notes=r.notes?`<div>Notes: ${escapeHtml(r.notes)}</div>`:'';
+    const photo=r.photoRef?`<div>Photo: <code>${escapeHtml(r.photoRef)}</code></div>`:'';
+    const selectedTag=(selectedCrop && r.cropName===selectedCrop)?' · selected crop':'';
+    return `<div class="obx-item"><div class="obx-head"><div><b>${escapeHtml(r.cropName||'Unknown crop')}</b><div class="obx-meta">${escapeHtml(r.date)}${selectedTag}</div></div><div class="obx-actions"><button type="button" onclick="useObservationForSymptomLookup('${escapeHtml(r.id)}')">Lookup</button><button type="button" class="danger" onclick="deleteObservationLogEntry('${escapeHtml(r.id)}')">Delete</button></div></div><div class="obx-body">${sym}${notes}${photo}</div></div>`;
+  }).join('');
 }
 function currentRowHistorySnapshot(){
   return getActiveBeds().map(b=>({
@@ -1296,6 +1455,16 @@ function getLatestCropOutcome(cropName){
   }
   return null;
 }
+function getObservationSummaries(limit=8,cropName=''){
+  return getRecentObservationLogs(limit,cropName).map(r=>({
+    id:r.id,
+    date:r.date,
+    cropName:r.cropName,
+    symptom:r.symptom,
+    notesPreview:(r.notes||'').slice(0,180),
+    photoRef:r.photoRef
+  }));
+}
 function renderSeasonArchiveSummary(){
   const el=document.getElementById('seasonArchiveSummary');
   if(!el) return;
@@ -1459,6 +1628,7 @@ function persistBedAndWeatherState(){
   safeLocalStorageSet(LS_KEYS.bedPlacementPrefs,JSON.stringify(APP_STATE.bedPlacementPrefs||{}));
   safeLocalStorageSet(LS_KEYS.rowHistoryPresets,JSON.stringify(APP_STATE.rowHistoryPresets||{}));
   safeLocalStorageSet(LS_KEYS.seasonArchives,JSON.stringify(APP_STATE.seasonArchives||{}));
+  safeLocalStorageSet(LS_KEYS.observationLogs,JSON.stringify(APP_STATE.observationLogs||[]));
   safeLocalStorageSet(LS_KEYS.planningYear,String(APP_STATE.planningYear||new Date().getFullYear()));
 }
 function saveBedAndWeatherState(){
@@ -1494,9 +1664,14 @@ function loadBedAndWeatherState(){
     const archivesRaw=safeLocalStorageGet(LS_KEYS.seasonArchives);
     APP_STATE.seasonArchives=archivesRaw?normalizeSeasonArchives(JSON.parse(archivesRaw),APP_STATE.beds):{};
   }catch{ APP_STATE.seasonArchives={}; }
+  try{
+    const obsRaw=safeLocalStorageGet(LS_KEYS.observationLogs);
+    APP_STATE.observationLogs=obsRaw?normalizeObservationLogs(JSON.parse(obsRaw)):[];
+  }catch{ APP_STATE.observationLogs=[]; }
   renderBedsEditor();
   renderRowHistoryPresetControls();
   renderSeasonArchiveControls();
+  renderObservationLogPanel();
   syncWeatherUiFromState();
 }
 function addBedRow(){
@@ -2415,10 +2590,12 @@ function buildStructuredPanelHtml(crop){
   const clay=(sc.notes?.clayTips||[]).map(t=>`<div class="tdx-item"><b>Clay Note</b>${t}</div>`).join('');
   const weather=weatherRiskFlags(crop);
   const weatherBox=weather.messages.length?`<div class="tdx-item"><b>Weather / Clay Alert</b>${escapeHtml(weather.messages[0])}</div>`:'';
+  const latestObs=getRecentObservationLogs(1,crop.name)[0]||null;
+  const obsBox=latestObs?`<div class="tdx-item"><b>Latest Observation</b>${escapeHtml(latestObs.date)}${latestObs.symptom?` · ${escapeHtml(latestObs.symptom)}`:''}${latestObs.photoRef?`<br><span style="color:#6b7b6b">Photo: ${escapeHtml(latestObs.photoRef)}</span>`:''}</div>`:'';
   const plannerBox=plan?`<div class="tdx-item"><b>People Planner (${APP_STATE.peopleCount}, ${APP_STATE.plannerMode})</b>${plan.recPlants} plants (~${plan.areaSqFt??'N/A'} sq ft)<br><span style="color:#6b7b6b">Range ${plan.minPlants}-${plan.maxPlants}${plan.recipeBoost?.plantsRounded?` · Recipe +${plan.recipeBoost.plantsRounded}`:''}</span></div>`:'';
   const symptomChips=getSymptomLookupChips(sc,10);
   const symptomLookup=(sc.ipm?.issueRecords||[]).length?`<div class="symx"><div class="symx-head">Symptom Lookup (MVP)</div><div class="symx-row"><input id="symptomLookupInput" type="text" placeholder="Describe what you see (e.g., yellow spots lower leaves)" onkeydown="if(event.key==='Enter'){runSymptomLookup()}"><button type="button" onclick="runSymptomLookup()">Analyze</button><button type="button" onclick="runSymptomLookup('')">Top Issues</button></div>${symptomChips.length?`<div class="symx-chips">${symptomChips.map(s=>`<button type="button" onclick="useSymptomLookupChip(${JSON.stringify(s).replace(/"/g,'&quot;')})">${escapeHtml(s)}</button>`).join('')}</div>`:''}<div id="symptomLookupResult" class="symx-result">${buildSymptomLookupResultHtml(crop,'')}</div></div>`:'';
-  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${weatherBox}${recipeProfiles}${ipmIssues}${varietyPicks}${clay}</div>${symptomLookup}${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
+  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${weatherBox}${obsBox}${recipeProfiles}${ipmIssues}${varietyPicks}${clay}</div>${symptomLookup}${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
 }
 function getSelectedCrop(){return Number.isInteger(APP_STATE.selectedCropIndex)?V[APP_STATE.selectedCropIndex]||null:null}
 function getAssistantConfigFromUi(){
@@ -2570,6 +2747,7 @@ function buildAssistantContext(){
     planner:{peopleCount:APP_STATE.peopleCount,mode:APP_STATE.plannerMode,bedSpaceLimitSqFt:APP_STATE.bedSpaceLimit||0,spacePriorityMode:APP_STATE.plannerPriorityMode||'balanced',selectedCropRecommendation:plan?{plants:plan.recPlants,areaSqFt:plan.areaSqFt,range:[plan.minPlants,plan.maxPlants],recipeBoost:plan.recipeBoost?.plantsRounded||0,recipeBoostMode:plan.recipeBoost?.mode||'legacy',historyAdjustment:plan.historyAdjustment||null,allocation:allocation?.allocation?{status:allocation.allocation.status,assignedPlants:allocation.allocation.assignedPlants,assignedSqFt:allocation.allocation.assignedSqFt,beds:(allocation.allocation.bedAssignments||[]).map(a=>({name:a.bedName,plants:a.plants,sqFt:a.sqFt}))}:null}:null},
     rotationWarnings,
     seasonArchives:getSeasonArchiveSummaries(5),
+    observations:{recent:getObservationSummaries(8),selectedCrop:getObservationSummaries(5,crop?.name||'')},
     timing:crop?{currentMonth:MONTHS[CAL_MONTH],nextMonth:MONTHS[NEXT_MONTH],currentMonthActions:monthActionsForCrop(crop,CAL_MONTH).map(k=>TM[k].t),nextMonthActions:monthActionsForCrop(crop,NEXT_MONTH).map(k=>TM[k].t)}:null,
     structuredCrop:sc?{id:sc.id,spacing:sc.spacing,yield:sc.yield,site:sc.site,preservation:sc.preservation,ipm:sc.ipm,recipeProfiles:sc.recipeProfiles}:null,
     recipeVarietySuggestions:crop?getRecipeVarietySuggestions(crop):[],
@@ -2589,9 +2767,14 @@ function answerMasterGardener(question){
   const q=(question||'').toLowerCase().trim();
   const crop=getSelectedCrop();
   const recentArchives=getSeasonArchiveSummaries(3);
+  const recentObs=getObservationSummaries(5);
   if(!crop && /\barchive|last year|yield|what worked|pest pressure|disease pressure|season review\b/.test(q)){
     if(!recentArchives.length) return `No season archives saved yet. Use the Beds panel to save an end-of-season archive with yield notes, pest pressure, and row history.`;
     return `Recent season archives: ${recentArchives.map(a=>`${a.year||'Season'} ${a.name} (pests ${a.pestPressure}, disease ${a.diseasePressure}${a.yieldSummary?`; ${a.yieldSummary}`:''})`).join(' | ')}. You can load an archive's row history into the planner from the Beds panel.`;
+  }
+  if(!crop && /\bobservation|observed|log|photo|symptom note\b/.test(q)){
+    if(!recentObs.length) return `No observation logs yet. Use the Observation Log section in the Planner/Beds panel to save date + crop + symptom + notes + photo reference entries.`;
+    return `Recent observations: ${recentObs.map(o=>`${o.date} ${o.cropName}${o.symptom?` (${o.symptom})`:''}${o.photoRef?` [photo: ${o.photoRef}]`:''}`).join(' | ')}. Select a crop for crop-specific troubleshooting and symptom lookup.`;
   }
   if(!crop){
     return `Select a crop in the “Varieties & Tips” tab first, then ask again. I can answer timing, spacing, pests, clay-soil notes, and household plant counts using your planner data.`;
@@ -2628,6 +2811,12 @@ function answerMasterGardener(question){
     const cropOutcome=getLatestCropOutcome(crop.name);
     const cropMsg=cropOutcome?` Latest ${crop.name} outcome: ${cropOutcome.outcome}${cropOutcome.yieldAmount?` · yield ${cropOutcome.yieldAmount}`:''}${cropOutcome.variety?` · variety ${cropOutcome.variety}`:''}${cropOutcome.pestIssue?` · pest ${cropOutcome.pestIssue}`:''}${cropOutcome.diseaseIssue?` · disease ${cropOutcome.diseaseIssue}`:''}.`:` No crop-specific outcome is archived for ${crop.name} yet.`;
     return `Latest season archive: ${top.year||'Season'} ${top.name}. Pest pressure: ${top.pestPressure}. Disease pressure: ${top.diseasePressure}. Yield summary: ${top.yieldSummary||'not entered'}. ${top.notesPreview?`Notes preview: ${top.notesPreview}`:''}${cropMsg} Use “Apply Archive Row History” in Beds to reuse that season’s row history for rotation planning.`;
+  }
+  if(/\bobservation|observed|log|photo|symptom note\b/.test(q)){
+    const cropObs=getObservationSummaries(5,crop.name);
+    if(!cropObs.length) return `No observation logs are saved for ${crop.name} yet. Use the Observation Log section to record dates, symptoms, notes, and photo refs, then I can use them in troubleshooting.`;
+    const latest=cropObs[0];
+    return `Recent observations for ${crop.name}: ${cropObs.map(o=>`${o.date}${o.symptom?` · ${o.symptom}`:''}${o.photoRef?` · photo ${o.photoRef}`:''}`).join(' | ')}. Latest note preview: ${latest.notesPreview||'no notes'}. You can click “Lookup” on an observation to open symptom lookup for that crop.`;
   }
   if(/\bweather|rain|humid|humidity|mildew risk|can i work|soil too wet\b/.test(q)){
     const wx=normalizeWeatherState(APP_STATE.weather);
@@ -2821,6 +3010,7 @@ function showDet(idx,el){
   h+=buildStructuredPanelHtml(v);
   h+=`</div></div>`;
   document.getElementById('dMain').innerHTML=h;
+  renderObservationLogPanel();
   renderAssistantPanel();
 }
 function switchTab(id,btn){
