@@ -1729,6 +1729,107 @@ function inferMethodCode(method){
   if(m.includes('buy'))return 'transplant_or_purchase';
   return 'mixed';
 }
+const IPM_ISSUE_LIBRARY={
+  categories:{
+    'Tomato Family':[
+      {id:'early-blight',label:'Early blight',type:'disease',symptoms:['brown leaf spots with rings','lower leaves yellowing upward'],scout:['check lower leaves weekly after rains','watch splash zone after storms'],prevention:['mulch soil splash zone','prune lower leaves for airflow','avoid overhead watering'],actionThreshold:'Act when spots are spreading beyond lower leaves or defoliation starts climbing the plant.',treatmentNotes:['remove worst infected leaves','improve airflow immediately']},
+      {id:'septoria',label:'Septoria leaf spot',type:'disease',symptoms:['many small dark spots on lower leaves','rapid yellowing/leaf drop'],scout:['inspect lower canopy after humid periods'],prevention:['mulch + stake/cage','sanitize fallen leaves'],actionThreshold:'Act at first clear spread in humid weather to preserve canopy.'},
+      {id:'hornworm',label:'Tomato hornworm',type:'pest',symptoms:['large chunks missing from leaves','dark droppings on leaves/soil'],scout:['check stems/undersides at dusk or morning','look for frass before searching'],prevention:['hand-pick early','encourage beneficial wasps'],actionThreshold:'Act immediately when found; a few worms can strip a plant fast.'}
+    ],
+    'Squash Family':[
+      {id:'cuke-beetle',label:'Cucumber beetles',type:'pest',symptoms:['striped/spotted beetles on seedlings','chewed cotyledons/leaves','sudden wilt from bacterial wilt risk'],scout:['check seedlings daily after emergence/transplant','monitor flowers for beetles'],prevention:['row cover before bloom','trap crop/fast scouting','trellis + sanitation'],actionThreshold:'Act immediately on seedlings or if beetles are persistent on young plants.'},
+      {id:'powdery-mildew',label:'Powdery mildew',type:'disease',symptoms:['white powdery patches on leaves','older leaves yellowing'],scout:['inspect oldest leaves first during humid spells'],prevention:['airflow spacing','trellis where possible','avoid excess shade'],actionThreshold:'Act when patches appear on multiple leaves or spread despite pruning.'},
+      {id:'squash-bug',label:'Squash bugs',type:'pest',symptoms:['bronzed/stippled leaves','egg clusters on leaf undersides','wilting from heavy feeding'],scout:['flip leaves weekly for bronze egg clusters'],prevention:['destroy egg clusters','clean vines/debris','row cover pre-bloom'],actionThreshold:'Act when eggs/nymphs are found; early control is much easier than adults.'}
+    ],
+    'Brassicas':[
+      {id:'cabbage-worms',label:'Cabbage worms',type:'pest',symptoms:['chewed holes plus green frass','damage in head centers'],scout:['check undersides weekly','inspect growing points'],prevention:['row cover','BT timing','hand-pick'],actionThreshold:'Act at first frass/larvae in head-forming crops.'},
+      {id:'flea-beetles',label:'Flea beetles',type:'pest',symptoms:['shot-hole damage on young leaves'],scout:['check seedlings and transplants daily in warm dry weather'],prevention:['row cover early','fast growth with moisture'],actionThreshold:'Act if seedlings are heavily peppered or growth stalls.'},
+      {id:'black-rot',label:'Black rot',type:'disease',symptoms:['yellow V-shaped lesions from leaf edge','darkened veins'],scout:['inspect outer leaves after warm wet periods'],prevention:['sanitation','rotation','avoid working wet foliage'],actionThreshold:'Remove infected leaves/plants promptly at first clear symptoms.'}
+    ],
+    'Beans':[
+      {id:'bacterial-blight',label:'Bacterial blight',type:'disease',symptoms:['water-soaked to brown leaf spots','pod spotting'],scout:['check after rain or overhead watering'],prevention:['do not work foliage wet','rotation','spacing for airflow'],actionThreshold:'Act immediately on sanitation and avoid handling when wet if spots appear.'},
+      {id:'bean-beetles',label:'Bean beetles',type:'pest',symptoms:['skeletonized leaves','yellow egg masses'],scout:['check leaf undersides and new growth weekly'],prevention:['succession planting','hand-pick eggs/larvae'],actionThreshold:'Act when feeding is increasing on young plants or pods are targeted.'}
+    ],
+    'Corn':[
+      {id:'earworm',label:'Corn earworm',type:'pest',symptoms:['silk feeding','damaged ear tips/kernels'],scout:['inspect silks and tips during ear set'],prevention:['timely harvest','silk protection methods'],actionThreshold:'Act during fresh silk stage if pressure is recurring in your garden.'}
+    ],
+    'Berries':[
+      {id:'swd',label:'Spotted wing drosophila',type:'pest',symptoms:['soft berries collapsing quickly','larvae in ripe fruit'],scout:['check ripening fruit frequently in warm humid weather'],prevention:['frequent harvest','sanitation','netting where practical'],actionThreshold:'Act before peak ripening if you have prior-season SWD pressure.'}
+    ]
+  },
+  crops:{
+    'Tomatoes':[
+      {id:'late-blight',label:'Late blight',type:'disease',symptoms:['water-soaked dark lesions','fast collapse in cool wet weather','fruit greasy brown spots'],scout:['check after rainy humid stretches','watch forecasts + nearby reports'],prevention:['airflow + spacing','avoid overhead watering','sanitation'],actionThreshold:'Act immediately at first suspected symptoms; spread can be rapid.'}
+    ],
+    'Peppers':[
+      {id:'phytophthora',label:'Phytophthora blight',type:'disease',symptoms:['sudden wilt after rain','stem/crown dark rot','fruit rot near soil splash'],scout:['check low/wet spots after heavy rain'],prevention:['raised/fast-draining beds','mulch','avoid saturated soil'],actionThreshold:'Act immediately and avoid replanting susceptible crops in saturated spots.'},
+      {id:'bacterial-leaf-spot',label:'Bacterial leaf spot',type:'disease',symptoms:['small angular leaf spots','shot-hole leaves','fruit lesions'],scout:['inspect after warm wet weather'],prevention:['avoid wet foliage handling','mulch splash zone','rotation'],actionThreshold:'Act on sanitation and handling practices at first spread.'}
+    ],
+    'Cucumbers':[
+      {id:'bacterial-wilt',label:'Bacterial wilt',type:'disease',symptoms:['sudden daytime wilt progressing to collapse','often after cucumber beetle feeding'],scout:['flag wilted runners quickly','monitor beetles early'],prevention:['cucumber beetle control early','row cover before bloom'],actionThreshold:'Remove badly wilted vines and prioritize beetle control at first suspects.'},
+      {id:'downy-mildew',label:'Downy mildew',type:'disease',symptoms:['angular yellow lesions','gray-purple growth underside'],scout:['check after humid/rainy periods, especially late season'],prevention:['airflow and trellis','avoid overhead irrigation'],actionThreshold:'Act when lesions spread across multiple leaves.'}
+    ],
+    'Zucchini/Summer Squash':[
+      {id:'svb',label:'Squash vine borer',type:'pest',symptoms:['sudden wilt despite moist soil','frass at vine base'],scout:['inspect vine bases several times per week during borer season'],prevention:['stem wraps','row cover pre-bloom','succession planting'],actionThreshold:'Act immediately when frass/wilt is seen on susceptible squash.'}
+    ],
+    'Sweet Corn':[
+      {id:'raccoons',label:'Raccoons',type:'pest',symptoms:['ears stripped overnight','stalks bent/broken'],scout:['watch as ears fill and sweeten'],prevention:['timing + deterrents/fencing','harvest promptly'],actionThreshold:'Act before milk stage if raccoon pressure is a known issue.'}
+    ],
+    'Okra':[
+      {id:'okra-leafspot',label:'Leaf spot / mildew pressure',type:'disease',symptoms:['leaf spots or mildew in dense humid growth'],scout:['check lower canopy in humid stretches'],prevention:['space for airflow','harvest frequently to keep plants manageable'],actionThreshold:'Act when lower-canopy spotting begins to climb upward.'}
+    ],
+    'Basil (Genovese)':[
+      {id:'basil-downy',label:'Basil downy mildew',type:'disease',symptoms:['yellowing between veins','gray-purple fuzz underside'],scout:['check undersides in humid weather'],prevention:['airflow','morning harvest','avoid wet foliage overnight'],actionThreshold:'Act immediately at first fuzzy underside growth to protect usable harvest.'}
+    ]
+  }
+};
+function normalizeIpmIssueRecords(records){
+  const arr=Array.isArray(records)?records:[];
+  const out=[];
+  for(const raw of arr){
+    if(!raw||typeof raw!=='object') continue;
+    const label=String(raw.label||raw.name||'').trim();
+    if(!label) continue;
+    out.push({
+      id:String(raw.id||slugify(label)).slice(0,64),
+      label:label.slice(0,80),
+      type:raw.type==='disease'?'disease':'pest',
+      symptoms:(Array.isArray(raw.symptoms)?raw.symptoms:[]).map(x=>String(x).trim()).filter(Boolean).slice(0,6),
+      scout:(Array.isArray(raw.scout)?raw.scout:[]).map(x=>String(x).trim()).filter(Boolean).slice(0,5),
+      prevention:(Array.isArray(raw.prevention)?raw.prevention:[]).map(x=>String(x).trim()).filter(Boolean).slice(0,6),
+      actionThreshold:String(raw.actionThreshold||raw.threshold||'').trim().slice(0,220),
+      treatmentNotes:(Array.isArray(raw.treatmentNotes||raw.actions)?(raw.treatmentNotes||raw.actions):[]).map(x=>String(x).trim()).filter(Boolean).slice(0,5)
+    });
+  }
+  const seen=new Set();
+  return out.filter(r=>{ const k=r.id||slugify(r.label); if(seen.has(k)) return false; seen.add(k); return true; });
+}
+function synthesizeIpmIssueRecordsFromLists(ipm){
+  if(!ipm) return [];
+  const pests=(ipm.commonPests||[]).slice(0,3).map(name=>({label:String(name),type:'pest',symptoms:[],scout:[`Scout ${String(name)} during active growth.`],prevention:(ipm.prevention||[]).slice(0,3),actionThreshold:'Act when feeding/damage increases or plants are stressed.'}));
+  const diseases=(ipm.commonDiseases||[]).slice(0,3).map(name=>({label:String(name),type:'disease',symptoms:[],scout:[`Scout for ${String(name)} symptoms after rain/humidity events.`],prevention:(ipm.prevention||[]).slice(0,3),actionThreshold:'Act at first clear spread to protect healthy foliage.'}));
+  return normalizeIpmIssueRecords([...pests,...diseases]);
+}
+function getStructuredIpmForCrop(crop,merged){
+  const ipm=mergeDeep({},merged?.ipm||{});
+  const catIssues=IPM_ISSUE_LIBRARY.categories[crop?.cat]||[];
+  const cropIssues=IPM_ISSUE_LIBRARY.crops[crop?.name]||[];
+  const rawIssues=[...(Array.isArray(ipm.issueRecords)?ipm.issueRecords:[]),...catIssues,...cropIssues];
+  const issueRecords=normalizeIpmIssueRecords(rawIssues);
+  ipm.issueRecords=issueRecords.length?issueRecords:synthesizeIpmIssueRecordsFromLists(ipm);
+  return ipm;
+}
+function findIpmIssuesByQuestion(sc,q){
+  const issues=sc?.ipm?.issueRecords||[];
+  const nq=String(q||'').toLowerCase();
+  if(!nq) return [];
+  const hits=issues.filter(issue=>{
+    const hay=[issue.label,...(issue.symptoms||[]),...(issue.scout||[]),...(issue.prevention||[])].join(' ').toLowerCase();
+    const tokens=String(issue.label||'').toLowerCase().split(/[^a-z0-9]+/).filter(t=>t.length>=3);
+    return tokens.some(t=>nq.includes(t)) || (hay && (nq.includes(issue.id) || hay.includes(nq)));
+  });
+  return hits.slice(0,3);
+}
 function getStructuredCrop(crop){
   if(!crop)return null;
   const key=crop.name;
@@ -1736,6 +1837,7 @@ function getStructuredCrop(crop){
   const base=CATEGORY_SCHEMA_DEFAULTS[crop.cat]||{};
   const over=CROP_SCHEMA_OVERRIDES[crop.name]||{};
   const merged=mergeDeep(base,over);
+  const structuredIpm=getStructuredIpmForCrop(crop,merged);
   const out={
     id:slugify(crop.name),
     category:crop.cat,
@@ -1749,7 +1851,7 @@ function getStructuredCrop(crop){
     householdPlanning:merged.householdPlanning||null,
     preservation:merged.preservation||null,
     recipeProfiles:Array.isArray(merged.recipeProfiles)?merged.recipeProfiles:[],
-    ipm:merged.ipm||null,
+    ipm:structuredIpm||null,
     notes:{summary:stripHtml(crop.cn),clayTips:(crop.tips||[]).map(stripHtml).filter(t=>/clay|drain|wet feet|compost|raised bed/i.test(t)).slice(0,2)}
   };
   STRUCT_CACHE.set(key,out);
@@ -2237,6 +2339,12 @@ function buildStructuredPanelHtml(crop){
   if(!sc)return '';
   const pests=(sc.ipm?.commonPests||[]).slice(0,5).map(p=>`<span>${p}</span>`).join('');
   const diseases=(sc.ipm?.commonDiseases||[]).slice(0,5).map(d=>`<span>${d}</span>`).join('');
+  const ipmIssues=(sc.ipm?.issueRecords||[]).slice(0,4).map(issue=>{
+    const symptom=(issue.symptoms||[])[0]||'';
+    const scout=(issue.scout||[])[0]||'';
+    const threshold=issue.actionThreshold||'';
+    return `<div class="tdx-item"><b>IPM ${escapeHtml(issue.type)}</b>${escapeHtml(issue.label)}${symptom?`<br><span style="color:#6b7b6b">Symptom: ${escapeHtml(symptom)}</span>`:''}${scout?`<br><span style="color:#6b7b6b">Scout: ${escapeHtml(scout)}</span>`:''}${threshold?`<br><span style="color:#92400e">Threshold: ${escapeHtml(threshold)}</span>`:''}</div>`;
+  }).join('');
   const preservation=(sc.preservation?.bestUses||[]).slice(0,6).map(u=>`<span>${u}</span>`).join('');
   const varietyPicks=getRecipeVarietySuggestions(crop).map(v=>`<div class="tdx-item"><b>Recipe Variety Pick</b>${escapeHtml(v.name)}<br><span style="color:#6b7b6b">${escapeHtml(v.tags.join(', '))}${v.roles?.length?` · ${escapeHtml(v.roles.join(', '))}`:''}</span></div>`).join('');
   const recipeProfiles=(sc.recipeProfiles||[]).slice(0,4).map(p=>{
@@ -2247,7 +2355,7 @@ function buildStructuredPanelHtml(crop){
   const weather=weatherRiskFlags(crop);
   const weatherBox=weather.messages.length?`<div class="tdx-item"><b>Weather / Clay Alert</b>${escapeHtml(weather.messages[0])}</div>`:'';
   const plannerBox=plan?`<div class="tdx-item"><b>People Planner (${APP_STATE.peopleCount}, ${APP_STATE.plannerMode})</b>${plan.recPlants} plants (~${plan.areaSqFt??'N/A'} sq ft)<br><span style="color:#6b7b6b">Range ${plan.minPlants}-${plan.maxPlants}${plan.recipeBoost?.plantsRounded?` · Recipe +${plan.recipeBoost.plantsRounded}`:''}</span></div>`:'';
-  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${weatherBox}${recipeProfiles}${varietyPicks}${clay}</div>${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
+  return `<div class="tdx"><h4>Structured Planning & IPM (MVP)</h4><div class="tdx-grid"><div class="tdx-item"><b>Crop ID</b>${sc.id}</div><div class="tdx-item"><b>Spacing</b>${fmtSpacing(sc.spacing)}</div><div class="tdx-item"><b>Yield Model</b>${sc.yield?`${sc.yield.unit} (${fmtRange(sc.yield.perPlantRange,'/plant')})`:'N/A'}</div><div class="tdx-item"><b>Site</b>${sc.site?`${sc.site.sun||'N/A'} sun · pH ${fmtPhRange(sc.site.phRange)} · ${sc.site.drainage||'drainage N/A'}`:'N/A'}</div>${plannerBox}${weatherBox}${recipeProfiles}${ipmIssues}${varietyPicks}${clay}</div>${preservation?`<div class="tdx-tags" title="Preservation uses">${preservation}</div>`:''}${pests?`<div class="tdx-tags" title="Common pests">${pests}</div>`:''}${diseases?`<div class="tdx-tags" title="Common diseases">${diseases}</div>`:''}</div>`;
 }
 function getSelectedCrop(){return Number.isInteger(APP_STATE.selectedCropIndex)?V[APP_STATE.selectedCropIndex]||null:null}
 function getAssistantConfigFromUi(){
@@ -2463,10 +2571,21 @@ function answerMasterGardener(question){
     const msgs=wxFlags.messages.slice(0,3).join(' ');
     return `Weather snapshot: ${wx.rainLast3dIn}" rain last 3 days, ${wx.rainNext3dIn}" forecast next 3 days, humidity ${wx.humidityRisk}, soil marked ${wx.soilCondition}. ${msgs||'No major weather-based clay/mildew flags right now.'}`;
   }
+  if(/\bsymptom|symptoms|what am i seeing|scout|scouting|threshold|when should i act|action threshold|treat|treatment\b/.test(q)){
+    const issues=sc.ipm?.issueRecords||[];
+    if(!issues.length) return `I don't have structured IPM issue records for ${crop.name} yet. I do have common pests/diseases and general scouting notes.`;
+    const hits=findIpmIssuesByQuestion(sc,q);
+    const chosen=hits.length?hits:issues.slice(0,3);
+    const header=hits.length?`Matched IPM issue${hits.length>1?'s':''}`:`Top IPM issues`;
+    const wxNote=wxFlags.mildewRisk||wxFlags.blightRisk?` Weather risk is elevated (${weatherSnapshotLabel()}) so scout more often.`:'';
+    return `${header} for ${crop.name}: ${chosen.map(issue=>`${issue.label} [${issue.type}]${issue.symptoms?.length?` · symptoms: ${issue.symptoms.slice(0,2).join('; ')}`:''}${issue.scout?.length?` · scout: ${issue.scout.slice(0,2).join('; ')}`:''}${issue.actionThreshold?` · threshold: ${issue.actionThreshold}`:''}`).join(' | ')}.${wxNote}`;
+  }
   if(/\bpest|bug|disease|blight|mildew|worm|aphid|beetle|rot\b/.test(q)){
     const ipm=sc.ipm||{};
+    const issues=(ipm.issueRecords||[]).slice(0,3);
     const wxNote=wxFlags.mildewRisk||wxFlags.blightRisk?` Weather risk is elevated right now (${weatherSnapshotLabel()}) so increase scouting frequency.`:'';
-    return `${crop.name} IPM focus in your app (MVP): common pests: ${(ipm.commonPests||[]).join(', ')||'N/A'}; common diseases: ${(ipm.commonDiseases||[]).join(', ')||'N/A'}. Scout for ${(ipm.scoutFor||[]).join(', ')||'symptoms'} and prioritize ${(ipm.prevention||[]).join(', ')||'prevention basics'}.${wxNote}`;
+    const issueLead=issues.length?` Structured issues: ${issues.map(i=>`${i.label} (${i.type})`).join(', ')}.`:'';
+    return `${crop.name} IPM focus in your app (MVP): common pests: ${(ipm.commonPests||[]).join(', ')||'N/A'}; common diseases: ${(ipm.commonDiseases||[]).join(', ')||'N/A'}. Scout for ${(ipm.scoutFor||[]).join(', ')||'symptoms'} and prioritize ${(ipm.prevention||[]).join(', ')||'prevention basics'}.${issueLead}${wxNote}`;
   }
   if(/\bwhen|now|this week|start|sow|transplant|plant\b/.test(q)){
     return `Timing for ${crop.name}: ${MONTHS[CAL_MONTH]} actions: ${timingNow}. ${MONTHS[NEXT_MONTH]} preview: ${timingNext}. Your crop detail calendar remains the source of truth for exact month windows.`;
@@ -2484,7 +2603,7 @@ function answerMasterGardener(question){
     const varMsg=varPicks.length?` Variety picks from your selected list: ${varPicks.map(v=>`${v.name} [${v.tags.join('/')}]`).join('; ')}.`:'';
     return `${crop.name} preservation/recipe tags: ${uses}. Current recipe targets add ${rb} plants to this crop's household recommendation${plan?.recipeBoost?.reasons?.length?` (${plan.recipeBoost.reasons.slice(0,3).join('; ')})`:''}.${prof?` Structured recipe profiles: ${prof}.`:''}${varMsg}`;
   }
-  return `For ${crop.name}, I can help with timing (${MONTHS[CAL_MONTH]}: ${timingNow}), spacing (${fmtSpacing(sc.spacing)}), household counts (${plan?`${plan.recPlants} plants for ${APP_STATE.peopleCount} people`: 'model pending'}), and IPM focus (${(sc.ipm?.commonPests||[]).slice(0,2).join(', ')||'N/A'} / ${(sc.ipm?.commonDiseases||[]).slice(0,2).join(', ')||'N/A'}).`;
+  return `For ${crop.name}, I can help with timing (${MONTHS[CAL_MONTH]}: ${timingNow}), spacing (${fmtSpacing(sc.spacing)}), household counts (${plan?`${plan.recPlants} plants for ${APP_STATE.peopleCount} people`: 'model pending'}), and IPM focus (${(sc.ipm?.commonPests||[]).slice(0,2).join(', ')||'N/A'} / ${(sc.ipm?.commonDiseases||[]).slice(0,2).join(', ')||'N/A'}${sc.ipm?.issueRecords?.length?` · ${sc.ipm.issueRecords.length} issue records`:''}).`;
 }
 async function askMasterGardener(){
   const input=document.getElementById('mgQuestion'), out=document.getElementById('mgResponse');
