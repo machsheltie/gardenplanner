@@ -1029,7 +1029,6 @@ function syncPlanningYearFromUi(){
   if(inp) inp.value=String(APP_STATE.planningYear);
 }
 function renderRowHistoryPresetControls(statusMsg=''){
-  syncPlanningYearFromUi();
   const select=document.getElementById('rowHistoryPresetSelect');
   const nameInput=document.getElementById('rowHistoryPresetName');
   const yearInput=document.getElementById('rowHistoryPlanYear');
