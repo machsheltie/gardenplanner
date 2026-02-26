@@ -141,6 +141,23 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .anx-rec{font-size:.75em;line-height:1.35;background:#eef6ea;border:1px solid #d8e4d4;color:#355335;border-radius:7px;padding:7px}
 .anx-rec.warn{background:#fffbeb;border-color:#fde68a;color:#7c5200}
 .anx-chip{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;font-size:.66em;font-weight:700;background:#eef6ea;color:#355335}
+.tx-box{margin:10px 0;background:#f9fbf8;border:1px solid #e0e8de;border-radius:10px;padding:10px}
+.tx-head{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.tx-head h4{font-size:.84em;color:#2d5a27}
+.tx-ctrls{display:flex;gap:8px;flex-wrap:wrap}
+.tx-ctrls select{padding:6px 8px;border:2px solid #d4ddd4;border-radius:8px;font-family:inherit;font-size:.76em;background:#fff}
+.tx-ctrls button{padding:6px 8px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.75em;cursor:pointer}
+.tx-list{display:flex;flex-direction:column;gap:6px}
+.tx-item{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start;background:#fff;border:1px solid #e0e8de;border-radius:8px;padding:7px 8px}
+.tx-pri{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:20px;padding:0 6px;border-radius:999px;font-size:.66em;font-weight:700}
+.tx-pri.high{background:#fee2e2;color:#991b1b}
+.tx-pri.med{background:#fef3c7;color:#92400e}
+.tx-pri.low{background:#e0f2fe;color:#075985}
+.tx-body{font-size:.76em;color:#435343;line-height:1.35}
+.tx-title{font-weight:700;color:#2d5a27}
+.tx-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
+.tx-meta span{font-size:.67em;background:#f3f7f1;border:1px solid #e0e8de;color:#5d6d5d;border-radius:999px;padding:2px 6px}
+.tx-empty{font-size:.76em;color:#6a7a69;background:#fff;border:1px dashed #dbe5d9;border-radius:8px;padding:8px}
 .pt-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
 .pt-card{background:#fff;border:2px solid #d4ddd4;border-radius:12px;padding:14px}
 .pt-card h3{font-size:1em;color:#2d5a27;margin-bottom:10px}
@@ -306,6 +323,25 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <label>Curry (pots)<input id="rtCurryPots" type="number" min="0" value="0" oninput="handlePlannerControls()"></label>
 </div>
 <div class="pt-recipes-note" id="recipeDemandSummary">Recipe target boosts are off (all set to 0).</div>
+<div class="tx-box">
+<div class="tx-head">
+<h4>Task Engine (MVP)</h4>
+<div class="tx-ctrls">
+<select id="taskWindowMode" onchange="handleTaskEngineControlsChange()">
+<option value="today">Today</option>
+<option value="week" selected>This Week</option>
+<option value="month">This Month</option>
+</select>
+<select id="taskFocusMode" onchange="handleTaskEngineControlsChange()">
+<option value="auto" selected>Auto focus</option>
+<option value="selected">Selected crop</option>
+<option value="all">All crops</option>
+</select>
+<button type="button" onclick="renderPeoplePlanner()">Refresh Tasks</button>
+</div>
+</div>
+<div id="taskEngineList" class="tx-list"><div class="tx-empty">Task suggestions will appear after the planner renders.</div></div>
+</div>
 <div class="pt-mini-grid">
 <div class="pt-mini-card">
 <h4>Weather & Clay Risk (MVP)</h4>
@@ -505,6 +541,7 @@ const BACKUP_SCHEMA_VERSION=2;
 const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},observationLogs:[],weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
 const SEASON_ANALYTICS_CACHE={key:'',value:null};
+const TASK_ENGINE_STATE={windowMode:'week',focus:'auto'};
 const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives',observationLogs:'gardenPlanner.observationLogs'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
@@ -2639,6 +2676,194 @@ function renderRecipeDemandSummary(){
   }
   el.innerHTML=`Recipe demand enabled: ${active.map(([k,v])=>`<strong>${v}</strong> ${RECIPE_TARGET_LABELS[k]||k}`).join(' · ')}. Planner uses crop recipe profiles when available (with legacy fallback matching for the rest).`;
 }
+function getTaskEngineUiState(){
+  const winEl=document.getElementById('taskWindowMode');
+  const focusEl=document.getElementById('taskFocusMode');
+  if(winEl && ['today','week','month'].includes(winEl.value)) TASK_ENGINE_STATE.windowMode=winEl.value;
+  if(focusEl && ['auto','selected','all'].includes(focusEl.value)) TASK_ENGINE_STATE.focus=focusEl.value;
+  return {...TASK_ENGINE_STATE};
+}
+function syncTaskEngineControlsToUi(){
+  const winEl=document.getElementById('taskWindowMode');
+  const focusEl=document.getElementById('taskFocusMode');
+  if(winEl) winEl.value=TASK_ENGINE_STATE.windowMode||'week';
+  if(focusEl) focusEl.value=TASK_ENGINE_STATE.focus||'auto';
+}
+function handleTaskEngineControlsChange(){
+  getTaskEngineUiState();
+  renderPeoplePlanner();
+}
+function taskPriorityRank(p){ return p==='high'?3:p==='med'?2:1 }
+function addTaskItem(tasks,item){
+  if(!item || !item.title) return;
+  const key=String(item.key||`${item.title}|${item.crop||''}|${item.source||''}`);
+  if(tasks.some(t=>t.key===key)) return;
+  tasks.push({
+    key,
+    priority:['high','med','low'].includes(item.priority)?item.priority:'med',
+    title:String(item.title).slice(0,180),
+    detail:String(item.detail||'').slice(0,420),
+    source:String(item.source||'planner'),
+    crop:String(item.crop||''),
+    location:String(item.location||''),
+    when:String(item.when||'')
+  });
+}
+function taskMonthNamesForWindow(mode=TASK_ENGINE_STATE.windowMode){
+  const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if(mode==='today') return {months:[CAL_MONTH],label:'today',monthNames};
+  if(mode==='month') return {months:[CAL_MONTH],label:'this month',monthNames};
+  return {months:[CAL_MONTH,NEXT_MONTH].filter((m,i,a)=>a.indexOf(m)===i),label:'this week',monthNames};
+}
+function taskActionLabel(code){
+  return ({i:'start indoors',t:'transplant outdoors',d:'direct sow',f:'fall sow / succession',h:'harvest'})[code]||code;
+}
+function recentObservationDayDelta(iso){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return 999;
+  const now=new Date();
+  const dt=new Date(`${iso}T00:00:00`);
+  return Math.max(0,Math.floor((now-dt)/(1000*60*60*24)));
+}
+function cropMatchesTaskFocus(crop){
+  const focus=getTaskEngineUiState().focus;
+  if(focus==='all') return true;
+  const sel=getSelectedCrop();
+  if(focus==='selected') return sel?sel.name===crop.name:false;
+  if(sel && (crop.name===sel.name || crop.cat===sel.cat)) return true;
+  return true;
+}
+function generateTaskEngineItems(rankedRows=[],allocation=null){
+  const tasks=[];
+  const {months,label:windowLabel,monthNames}=taskMonthNamesForWindow(getTaskEngineUiState().windowMode);
+  const selectedCrop=getSelectedCrop();
+  const wx=weatherRiskFlags(selectedCrop||null);
+  const analytics=getSeasonAnalyticsSnapshot();
+  const rows=Array.isArray(rankedRows)?rankedRows:[];
+  const allocRows=allocation?.rows||rows;
+  const allocByCrop=new Map(allocRows.map(r=>[r.crop?.name,r]));
+  const rowSuggestionMap=allocation?buildPlannerRowSuggestionMap(allocation):{};
+
+  if(wx.avoidClayWork){
+    addTaskItem(tasks,{priority:'high',source:'weather',when:windowLabel,title:'Avoid working wet clay soil',detail:'Delay digging/tilling and stay on paths until soil is workable to avoid compaction in heavy Kentucky red clay.'});
+  }
+  if(wx.mildewRisk || wx.blightRisk){
+    const riskCrop=(selectedCrop && cropDiseaseRiskKeywordHit(getStructuredCrop(selectedCrop))) ? selectedCrop : rows.find(r=>cropDiseaseRiskKeywordHit(r.sc||getStructuredCrop(r.crop)))?.crop;
+    addTaskItem(tasks,{priority:wx.blightRisk?'high':'med',source:'weather',crop:riskCrop?.name||'',when:windowLabel,title:'Increase disease scouting after rain/humidity',detail:`${weatherSnapshotLabel()}. Scout lower leaves, improve airflow, and avoid overhead watering while pressure is elevated${riskCrop?` (start with ${riskCrop.name})`:''}.`});
+  }
+
+  const actionCodes=['i','t','d','f','h'];
+  for(const code of actionCodes){
+    let count=0;
+    for(const row of rows){
+      if(count>=3) break;
+      const crop=row.crop;
+      if(!crop || !cropMatchesTaskFocus(crop)) continue;
+      const acts=months.flatMap(m=>monthActionsForCrop(crop,m).map(a=>({month:m,code:a}))).filter(a=>a.code===code);
+      if(!acts.length) continue;
+      const uniqMonths=[...new Set(acts.map(a=>a.month))];
+      const alloc=allocByCrop.get(crop.name)?.allocation||null;
+      const rowSuggests=(rowSuggestionMap[crop.name]||[]).slice(0,2);
+      const monthTxt=uniqMonths.map(m=>monthNames[m]).join(', ');
+      const detailParts=[`${taskActionLabel(code)} in ${monthTxt}`, row.plan?.recPlants?`planner target ${row.plan.recPlants} plants`:''];
+      if(alloc?.status==='partial' || alloc?.status==='defer') detailParts.push(`space status: ${plannerStatusLabel(alloc,row.plan)}`);
+      if(rowSuggests.length) detailParts.push(`row suggestion: ${rowSuggests.map(s=>`${s.bedName} ${s.rowLabel}`).join(', ')}`);
+      addTaskItem(tasks,{
+        priority:(code==='t'||code==='d'||code==='f')?'med':(code==='h'?'low':'med'),
+        source:'calendar',
+        crop:crop.name,
+        when:windowLabel,
+        title:`${crop.name}: ${taskActionLabel(code)}`,
+        detail:detailParts.filter(Boolean).join(' · ')
+      });
+      count++;
+    }
+  }
+
+  const recentObs=getRecentObservationLogs(12).filter(o=>recentObservationDayDelta(o.date)<=14);
+  for(const o of recentObs.slice(0,4)){
+    if(o.cropName && !cropMatchesTaskFocus({name:o.cropName,cat:(V.find(v=>v.name===o.cropName)?.cat||'')})) continue;
+    const sig=observationIssueSignalsForText([o.symptom,o.notes].filter(Boolean).join(' '));
+    const loc=formatObservationBedRowLabel(o);
+    const urgency=sig.disease?'high':sig.pest?'med':'low';
+    addTaskItem(tasks,{
+      priority:urgency,
+      source:'observation',
+      crop:o.cropName||'',
+      location:loc||'',
+      when:`${recentObservationDayDelta(o.date)}d ago`,
+      title:`Re-check observation: ${o.cropName||'crop'}${o.symptom?` (${o.symptom})`:''}`,
+      detail:`Logged ${o.date}${loc?` at ${loc}`:''}. Re-scout, compare spread, and record what changed${o.photoRef?` (photo ref: ${o.photoRef})`:''}.`
+    });
+  }
+
+  const recurring=analytics.recurringCropIssues||[];
+  for(const c of recurring.slice(0,4)){
+    const crop=V.find(v=>v.name===c.cropName);
+    if(!crop || !cropMatchesTaskFocus(crop)) continue;
+    if(!months.some(m=>hasMonthAction(crop,m))) continue;
+    addTaskItem(tasks,{
+      priority:c.issueLoad>=6?'high':'med',
+      source:'analytics',
+      crop:c.cropName,
+      when:windowLabel,
+      title:`Priority scouting: ${c.cropName}`,
+      detail:`Recurring issue load ${c.issueLoad} (pest ${c.pestHits}, disease ${c.diseaseHits})${c.outcomeCount?` · avg outcome ${round1(c.avgOutcome)}/4`:''}. Scout early this ${windowLabel}.`
+    });
+  }
+  for(const h of (analytics.hotspots||[]).slice(0,3)){
+    addTaskItem(tasks,{
+      priority:h.diseaseHits>=2?'high':'med',
+      source:'analytics',
+      location:h.label,
+      when:windowLabel,
+      title:`Hotspot watch: ${h.label}`,
+      detail:`${h.obsCount} observations with pest ${h.pestHits} / disease ${h.diseaseHits}. Sanitize debris, check drainage, and avoid repeating susceptible families in this spot.`
+    });
+  }
+
+  if(allocation?.rows?.some(r=>r.allocation?.status==='partial' || r.allocation?.status==='defer')){
+    const partialCt=allocation.rows.filter(r=>r.allocation?.status==='partial').length;
+    const deferCt=allocation.rows.filter(r=>r.allocation?.status==='defer').length;
+    addTaskItem(tasks,{
+      priority:'med',
+      source:'planner',
+      when:windowLabel,
+      title:'Resolve planner space conflicts',
+      detail:`${partialCt} partial and ${deferCt} deferred crop plans. Review bed caps, drag crops between beds/rows, or reduce lower-priority crops.`
+    });
+  }
+
+  return tasks
+    .sort((a,b)=>taskPriorityRank(b.priority)-taskPriorityRank(a.priority) || String(a.source).localeCompare(String(b.source)) || a.title.localeCompare(b.title))
+    .slice(0,14);
+}
+function renderTaskEngineList(rankedRows=[],allocation=null){
+  syncTaskEngineControlsToUi();
+  const host=document.getElementById('taskEngineList');
+  if(!host) return;
+  const tasks=generateTaskEngineItems(rankedRows,allocation);
+  if(!tasks.length){
+    host.innerHTML='<div class="tx-empty">No tasks generated for the current filters. Try switching task focus to “All crops” or adjusting planner filters.</div>';
+    return;
+  }
+  host.innerHTML=tasks.map(t=>{
+    const priLabel=t.priority==='high'?'HIGH':t.priority==='med'?'MED':'LOW';
+    const meta=[t.source,t.crop,t.location,t.when].filter(Boolean).map(x=>`<span>${escapeHtml(String(x))}</span>`).join('');
+    return `<div class="tx-item"><div class="tx-pri ${t.priority}">${priLabel}</div><div class="tx-body"><div class="tx-title">${escapeHtml(t.title)}</div><div>${escapeHtml(t.detail)}</div>${meta?`<div class="tx-meta">${meta}</div>`:''}</div></div>`;
+  }).join('');
+}
+function getTaskEngineSummaries(limit=8){
+  const ranked=getPlannerRows({ignoreSearch:true});
+  const alloc=allocatePlannerRows(ranked);
+  return generateTaskEngineItems(ranked,alloc).slice(0,Math.max(0,limit|0)).map(t=>({
+    priority:t.priority,
+    title:t.title,
+    crop:t.crop||'',
+    location:t.location||'',
+    source:t.source,
+    when:t.when
+  }));
+}
 function estimateCropPlan(crop,people=APP_STATE.peopleCount,mode=APP_STATE.plannerMode){
   const sc=getStructuredCrop(crop),hp=sc?.householdPlanning,sp=sc?.spacing;
   if(!hp)return null;
@@ -3028,12 +3253,14 @@ function renderPeoplePlanner(){
     body.innerHTML='<tr><td colspan="6">No crops match the current filter.</td></tr>';
     sum.textContent='No planner rows matched your filter.';
     const emptyAlloc={rows:[],bedUsage:[],hasBeds:getActiveBeds().length>0,beds:getActiveBeds(),budgetSqFt:0,usedSqFt:0,remainingSqFt:0,bedsTotalSqFt:totalBedSqFt()};
+    renderTaskEngineList([],emptyAlloc);
     renderPlannerBedAllocationSummary(emptyAlloc);
     renderPlannerBedMaps(emptyAlloc);
     return;
   }
   const allocation=allocatePlannerRows(rankedRows);
   const rows=allocation.rows;
+  renderTaskEngineList(rankedRows,allocation);
   const rowSuggestionMap=buildPlannerRowSuggestionMap(allocation);
   let totalSqFt=0,totalRecipePlants=0;
   const selected=getSelectedCrop();
@@ -3290,6 +3517,7 @@ function buildAssistantContext(){
     rotationWarnings,
     seasonArchives:getSeasonArchiveSummaries(5),
     observations:{recent:getObservationSummaries(8),selectedCrop:getObservationSummaries(5,crop?.name||'')},
+    taskEngine:{...getTaskEngineUiState(),top:getTaskEngineSummaries(8)},
     timing:crop?{currentMonth:MONTHS[CAL_MONTH],nextMonth:MONTHS[NEXT_MONTH],currentMonthActions:monthActionsForCrop(crop,CAL_MONTH).map(k=>TM[k].t),nextMonthActions:monthActionsForCrop(crop,NEXT_MONTH).map(k=>TM[k].t)}:null,
     structuredCrop:sc?{id:sc.id,spacing:sc.spacing,yield:sc.yield,site:sc.site,preservation:sc.preservation,ipm:sc.ipm,recipeProfiles:sc.recipeProfiles}:null,
     recipeVarietySuggestions:crop?getRecipeVarietySuggestions(crop):[],
@@ -3310,6 +3538,14 @@ function answerMasterGardener(question){
   const crop=getSelectedCrop();
   const recentArchives=getSeasonArchiveSummaries(3);
   const recentObs=getObservationSummaries(5);
+  const topTasks=getTaskEngineSummaries(6);
+  if(/\b(task|to-?do|what should i do|this week plan|today plan)\b/.test(q)){
+    if(!topTasks.length) return `No task suggestions are available yet. Render the Planner tab first, then add beds/observations/archives for richer task guidance.`;
+    const cropFilter=(crop && /\b(this crop|selected crop|for this)\b/.test(q))?crop.name:'';
+    const list=(cropFilter?topTasks.filter(t=>t.crop===cropFilter):topTasks).slice(0,5);
+    if(!list.length) return `I don't have task suggestions for ${crop.name} yet. Switch Task Engine focus to All crops or add more observations/archives.`;
+    return `Top ${getTaskEngineUiState().windowMode==='today'?'today':'this-week'} tasks${cropFilter?` for ${cropFilter}`:''}: ${list.map(t=>`${t.priority.toUpperCase()} ${t.title}${t.location?` @ ${t.location}`:''}${t.crop && !t.title.includes(t.crop)?` (${t.crop})`:''}`).join(' | ')}. See the Task Engine panel in Planner for full details and row suggestions.`;
+  }
   if(!crop && /\barchive|last year|yield|what worked|pest pressure|disease pressure|season review\b/.test(q)){
     if(!recentArchives.length) return `No season archives saved yet. Use the Beds panel to save an end-of-season archive with yield notes, pest pressure, and row history.`;
     return `Recent season archives: ${recentArchives.map(a=>`${a.year||'Season'} ${a.name} (pests ${a.pestPressure}, disease ${a.diseasePressure}${a.yieldSummary?`; ${a.yieldSummary}`:''})`).join(' | ')}. You can load an archive's row history into the planner from the Beds panel.`;
