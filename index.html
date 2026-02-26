@@ -124,6 +124,23 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .obx-actions{display:flex;gap:6px;flex-wrap:wrap}
 .obx-actions button{padding:4px 7px;border:1px solid #d4ddd4;border-radius:999px;background:#fff;font-size:.68em;cursor:pointer}
 .obx-actions button.danger{border-color:#fca5a5;background:#fff5f5;color:#991b1b}
+.anx-wrap{margin-top:8px;display:grid;gap:8px}
+.anx-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px}
+.anx-kpi{background:#fff;border:1px solid #e0e8de;border-radius:8px;padding:8px}
+.anx-kpi b{display:block;font-size:.7em;text-transform:uppercase;letter-spacing:.04em;color:#5f6f5f;margin-bottom:3px}
+.anx-kpi span{font-size:.95em;font-weight:700;color:#2d5a27}
+.anx-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.anx-card{background:#fff;border:1px solid #e0e8de;border-radius:8px;padding:8px}
+.anx-card h5{font-size:.77em;color:#2d5a27;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.anx-list{display:flex;flex-direction:column;gap:5px}
+.anx-item{font-size:.75em;line-height:1.35;color:#4f5f4f;background:#f8fbf6;border:1px solid #e8efE6;border-radius:7px;padding:6px 7px}
+.anx-item strong{color:#2d5a27}
+.anx-item .meta{display:block;color:#6a7a69;font-size:.92em}
+.anx-empty{font-size:.75em;color:#6a7a69;background:#f8fbf6;border:1px dashed #dbe5d9;border-radius:7px;padding:7px}
+.anx-recs{display:flex;flex-direction:column;gap:6px}
+.anx-rec{font-size:.75em;line-height:1.35;background:#eef6ea;border:1px solid #d8e4d4;color:#355335;border-radius:7px;padding:7px}
+.anx-rec.warn{background:#fffbeb;border-color:#fde68a;color:#7c5200}
+.anx-chip{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;font-size:.66em;font-weight:700;background:#eef6ea;color:#355335}
 .pt-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
 .pt-card{background:#fff;border:2px solid #d4ddd4;border-radius:12px;padding:14px}
 .pt-card h3{font-size:1em;color:#2d5a27;margin-bottom:10px}
@@ -225,7 +242,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .mg-src span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:2px 8px;font-size:.72em;font-weight:600}
 .mg-ctx{background:#0f172a;color:#dbeafe;border-radius:10px;padding:10px 12px;font-size:.75em;max-height:220px;overflow:auto;white-space:pre-wrap}
 @media(max-width:900px){.dl{flex-direction:column}.ds{width:100%}.vl{max-height:300px}.ig{grid-template-columns:1fr 1fr}.vc .vdt{grid-template-columns:1fr}}
-@media(max-width:900px){.pt-wrap{grid-template-columns:1fr}.pt-mini-grid{grid-template-columns:1fr}.pt-bed-row{grid-template-columns:1fr 1fr 1fr}.pt-bed-row button{grid-column:1/-1}.pt-bed-row-extra{grid-template-columns:1fr 1fr}.pt-bed-cell{min-height:16px}.pt-rowlane{grid-template-columns:44px 1fr}}
+@media(max-width:900px){.pt-wrap{grid-template-columns:1fr}.pt-mini-grid{grid-template-columns:1fr}.pt-bed-row{grid-template-columns:1fr 1fr 1fr}.pt-bed-row button{grid-column:1/-1}.pt-bed-row-extra{grid-template-columns:1fr 1fr}.pt-bed-cell{min-height:16px}.pt-rowlane{grid-template-columns:44px 1fr}.anx-grid{grid-template-columns:1fr}}
 @media(max-width:600px){.tabs{overflow-x:auto}.tab{padding:8px 12px;font-size:.8em;white-space:nowrap}table{font-size:.72em}header h1{font-size:1.3em}.pt-ctrls input{width:95px}}
 </style>
 </head>
@@ -369,6 +386,11 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 </div>
 <div class="pt-bed-summary" id="observationLogStatus">Log field observations (including photo references) to build in-season memory for troubleshooting and next-year planning.</div>
 <div class="obx-list" id="observationLogList"></div>
+<div class="pt-subhead">Season Analytics</div>
+<div class="pt-bed-actions">
+<button type="button" onclick="renderSeasonAnalyticsPanel()">Refresh Analytics</button>
+</div>
+<div id="seasonAnalyticsPanel" class="anx-wrap"><div class="pt-bed-summary">Add season archives and observations to see trends, winners, and bed/row hotspots.</div></div>
 <div id="bedsList" class="pt-beds-list"></div>
 <div class="pt-bed-actions">
 <button type="button" onclick="addBedRow()">Add Bed</button>
@@ -1184,6 +1206,7 @@ function renderObservationLogPanel(){
   const selectedCrop=getSelectedCrop()?.name||'';
   if(!rows.length){
     listEl.innerHTML='<div class="pt-bed-summary">No observations logged yet. Add a field note with symptom/notes/photo ref.</div>';
+    renderSeasonAnalyticsPanel();
     return;
   }
   listEl.innerHTML=rows.map(r=>{
@@ -1195,6 +1218,7 @@ function renderObservationLogPanel(){
     const selectedTag=(selectedCrop && r.cropName===selectedCrop)?' · selected crop':'';
     return `<div class="obx-item"><div class="obx-head"><div><b>${escapeHtml(r.cropName||'Unknown crop')}</b><div class="obx-meta">${escapeHtml(r.date)}${selectedTag}</div></div><div class="obx-actions"><button type="button" onclick="useObservationForSymptomLookup('${escapeHtml(r.id)}')">Lookup</button><button type="button" class="danger" onclick="deleteObservationLogEntry('${escapeHtml(r.id)}')">Delete</button></div></div><div class="obx-body">${locHtml}${sym}${notes}${photo}</div></div>`;
   }).join('');
+  renderSeasonAnalyticsPanel();
 }
 function currentRowHistorySnapshot(){
   return getActiveBeds().map(b=>({
@@ -1597,12 +1621,155 @@ function getObservationSummaries(limit=8,cropName=''){
     photoRef:r.photoRef
   }));
 }
+function computeSeasonAnalytics(){
+  const archives=getSeasonArchivesSorted();
+  const observations=normalizeObservationLogs(APP_STATE.observationLogs||[]);
+  const scoreMap={poor:1,fair:2,good:3,great:4};
+  const cropStats=new Map(), varietyStats=new Map(), yearStats=new Map(), hotspotStats=new Map();
+  const ensureCrop=(name)=>{
+    if(!cropStats.has(name)) cropStats.set(name,{cropName:name,outcomeCount:0,scoreSum:0,great:0,good:0,fair:0,poor:0,pestHits:0,diseaseHits:0,obsCount:0});
+    return cropStats.get(name);
+  };
+  const ensureYear=(year)=>{
+    const key=String(year||'unknown');
+    if(!yearStats.has(key)) yearStats.set(key,{year:key,archiveCount:0,outcomeCount:0,scoreSum:0,scoreCt:0,pestHigh:0,diseaseHigh:0});
+    return yearStats.get(key);
+  };
+  for(const a of archives){
+    const ys=ensureYear(a.year||'unknown');
+    ys.archiveCount++;
+    if(a.pestPressure==='high') ys.pestHigh++;
+    if(a.diseasePressure==='high') ys.diseaseHigh++;
+    for(const row of (a.cropOutcomes||[])){
+      if(!row.cropName) continue;
+      const cs=ensureCrop(row.cropName);
+      const sc=scoreMap[row.outcome]||0;
+      cs.outcomeCount++; cs.scoreSum+=sc;
+      if(row.outcome==='great') cs.great++; else if(row.outcome==='good') cs.good++; else if(row.outcome==='fair') cs.fair++; else if(row.outcome==='poor') cs.poor++;
+      if(row.pestIssue) cs.pestHits++;
+      if(row.diseaseIssue) cs.diseaseHits++;
+      ys.outcomeCount++; ys.scoreSum+=sc; ys.scoreCt++;
+      const variety=String(row.variety||'').trim();
+      if(variety){
+        const key=`${row.cropName}::${variety}`;
+        const vs=varietyStats.get(key)||{cropName:row.cropName,variety,count:0,scoreSum:0,great:0,poor:0,years:new Set()};
+        vs.count++; vs.scoreSum+=sc; if(row.outcome==='great') vs.great++; if(row.outcome==='poor') vs.poor++;
+        if(a.year) vs.years.add(String(a.year));
+        varietyStats.set(key,vs);
+      }
+    }
+  }
+  for(const o of observations){
+    const txt=[o.symptom,o.notes].filter(Boolean).join(' ');
+    const sig=observationIssueSignalsForText(txt);
+    if(o.cropName){
+      const cs=ensureCrop(o.cropName);
+      cs.obsCount++;
+      if(sig.pest) cs.pestHits++;
+      if(sig.disease) cs.diseaseHits++;
+    }
+    const loc=formatObservationBedRowLabel(o) || o.bedName || '';
+    if(loc){
+      const hs=hotspotStats.get(loc)||{label:loc,obsCount:0,pestHits:0,diseaseHits:0,crops:new Set()};
+      hs.obsCount++;
+      if(sig.pest) hs.pestHits++;
+      if(sig.disease) hs.diseaseHits++;
+      if(o.cropName) hs.crops.add(o.cropName);
+      hotspotStats.set(loc,hs);
+    }
+  }
+  const crops=[...cropStats.values()].map(c=>({
+    ...c,
+    avgOutcome:c.outcomeCount?c.scoreSum/c.outcomeCount:0,
+    issueLoad:c.pestHits+c.diseaseHits
+  }));
+  const varieties=[...varietyStats.values()].map(v=>({
+    ...v,
+    avgOutcome:v.count?v.scoreSum/v.count:0,
+    yearCount:v.years.size
+  }));
+  const years=[...yearStats.values()].map(y=>({...y,avgOutcome:y.scoreCt?y.scoreSum/y.scoreCt:0}))
+    .sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0));
+  const hotspots=[...hotspotStats.values()].map(h=>({
+    ...h,
+    cropCount:h.crops.size,
+    score:(h.diseaseHits*2)+(h.pestHits*1.25)+(h.obsCount*.25)
+  })).sort((a,b)=>b.score-a.score || b.obsCount-a.obsCount || a.label.localeCompare(b.label));
+  const topVarietyWinners=varieties.filter(v=>v.count>=1).sort((a,b)=>b.avgOutcome-a.avgOutcome || b.count-a.count || a.cropName.localeCompare(b.cropName)).slice(0,5);
+  const topVarietyLosers=varieties.filter(v=>v.count>=1).sort((a,b)=>a.avgOutcome-b.avgOutcome || b.count-a.count || a.cropName.localeCompare(b.cropName)).slice(0,5);
+  const recurringCropIssues=crops.filter(c=>c.issueLoad>0 || c.outcomeCount>0).sort((a,b)=>b.issueLoad-a.issueLoad || a.avgOutcome-b.avgOutcome || a.cropName.localeCompare(b.cropName)).slice(0,6);
+  return {
+    archiveCount:archives.length,
+    observationCount:observations.length,
+    yearsTracked:new Set(archives.map(a=>String(a.year||'unknown'))).size,
+    cropsWithOutcomes:crops.filter(c=>c.outcomeCount>0).length,
+    cropsWithObservations:crops.filter(c=>c.obsCount>0).length,
+    topVarietyWinners,
+    topVarietyLosers,
+    recurringCropIssues,
+    hotspots:hotspots.slice(0,6),
+    years,
+    crops
+  };
+}
+function buildSeasonAnalyticsRecommendations(a){
+  const recs=[];
+  if(!a.archiveCount) return [{text:'Save at least one Season Archive with crop outcomes to unlock variety winners/losers and year-over-year trends.',tone:'warn'}];
+  if(!a.observationCount) recs.push({text:'Start logging observations with bed/row tags so hotspot and issue trend analysis becomes specific.',tone:'warn'});
+  const hotspot=a.hotspots[0];
+  if(hotspot && hotspot.score>=3){
+    recs.push({text:`${hotspot.label} is your current hotspot (${hotspot.obsCount} logs; pest ${hotspot.pestHits}, disease ${hotspot.diseaseHits}). Avoid stacking disease-prone crops there next season without rotation/drainage adjustments.`});
+  }
+  const cropIssue=a.recurringCropIssues.find(c=>c.issueLoad>=3);
+  if(cropIssue){
+    recs.push({text:`${cropIssue.cropName} shows recurring pressure (${cropIssue.issueLoad} issue flags). Prioritize resistant varieties, wider spacing/airflow, and early scouting for this crop.`});
+  }
+  const loser=a.topVarietyLosers.find(v=>v.count>=2 && v.avgOutcome<=2.2);
+  if(loser){
+    recs.push({text:`Re-evaluate ${loser.variety} (${loser.cropName}) — average outcome ${round1(loser.avgOutcome)}/4 across ${loser.count} logged seasons.`,tone:'warn'});
+  }
+  const winner=a.topVarietyWinners.find(v=>v.count>=2 && v.avgOutcome>=3.2);
+  if(winner){
+    recs.push({text:`Lean into ${winner.variety} (${winner.cropName}) — average outcome ${round1(winner.avgOutcome)}/4 across ${winner.count} logged seasons.`,tone:'good'});
+  }
+  return recs.slice(0,4);
+}
+function renderSeasonAnalyticsPanel(){
+  const host=document.getElementById('seasonAnalyticsPanel');
+  if(!host) return;
+  const a=computeSeasonAnalytics();
+  if(!a.archiveCount && !a.observationCount){
+    host.innerHTML='<div class="pt-bed-summary">Add season archives and observations to see trends, winners, and bed/row hotspots.</div>';
+    return;
+  }
+  const recs=buildSeasonAnalyticsRecommendations(a);
+  const yearsHtml=a.years.length?`<div class="anx-list">${a.years.slice(0,4).map(y=>`<div class="anx-item"><strong>${escapeHtml(String(y.year))}</strong><span class="meta">${y.archiveCount} archive${y.archiveCount===1?'':'s'} · ${y.outcomeCount} crop outcomes · avg outcome ${y.scoreCt?`${round1(y.avgOutcome)}/4`:'n/a'} · high pressure: pests ${y.pestHigh}, disease ${y.diseaseHigh}</span></div>`).join('')}</div>`:'<div class="anx-empty">No season archives yet.</div>';
+  const winnersHtml=a.topVarietyWinners.length?`<div class="anx-list">${a.topVarietyWinners.map(v=>`<div class="anx-item"><strong>${escapeHtml(v.variety)}</strong> <span class="anx-chip">${escapeHtml(v.cropName)}</span><span class="meta">Avg ${round1(v.avgOutcome)}/4 · ${v.count} outcome log${v.count===1?'':'s'}${v.yearCount?` · ${v.yearCount} year${v.yearCount===1?'':'s'}`:''}</span></div>`).join('')}</div>`:'<div class="anx-empty">Add variety names in crop outcomes to rank winners.</div>';
+  const losersHtml=a.topVarietyLosers.length?`<div class="anx-list">${a.topVarietyLosers.map(v=>`<div class="anx-item"><strong>${escapeHtml(v.variety)}</strong> <span class="anx-chip">${escapeHtml(v.cropName)}</span><span class="meta">Avg ${round1(v.avgOutcome)}/4 · ${v.count} outcome log${v.count===1?'':'s'}</span></div>`).join('')}</div>`:'<div class="anx-empty">No variety outcome data yet.</div>';
+  const issuesHtml=a.recurringCropIssues.length?`<div class="anx-list">${a.recurringCropIssues.map(c=>`<div class="anx-item"><strong>${escapeHtml(c.cropName)}</strong><span class="meta">Issue flags ${c.issueLoad} (pest ${c.pestHits}, disease ${c.diseaseHits}) · observations ${c.obsCount} · outcomes ${c.outcomeCount}${c.outcomeCount?` · avg ${round1(c.avgOutcome)}/4`:''}</span></div>`).join('')}</div>`:'<div class="anx-empty">No crop issue trends yet.</div>';
+  const hotspotsHtml=a.hotspots.length?`<div class="anx-list">${a.hotspots.map(h=>`<div class="anx-item"><strong>${escapeHtml(h.label)}</strong><span class="meta">${h.obsCount} observations · pest ${h.pestHits} · disease ${h.diseaseHits} · ${h.cropCount} crop${h.cropCount===1?'':'s'}</span></div>`).join('')}</div>`:'<div class="anx-empty">Tag observations with bed/row to build hotspot tracking.</div>';
+  host.innerHTML=`<div class="anx-kpis">
+    <div class="anx-kpi"><b>Seasons</b><span>${a.yearsTracked}</span></div>
+    <div class="anx-kpi"><b>Archives</b><span>${a.archiveCount}</span></div>
+    <div class="anx-kpi"><b>Observations</b><span>${a.observationCount}</span></div>
+    <div class="anx-kpi"><b>Crops Tracked</b><span>${Math.max(a.cropsWithOutcomes,a.cropsWithObservations)}</span></div>
+  </div>
+  <div class="anx-grid">
+    <div class="anx-card"><h5>Year Trends</h5>${yearsHtml}</div>
+    <div class="anx-card"><h5>Recurring Crop Pressure</h5>${issuesHtml}</div>
+    <div class="anx-card"><h5>Variety Winners</h5>${winnersHtml}</div>
+    <div class="anx-card"><h5>Variety Watchlist</h5>${losersHtml}</div>
+    <div class="anx-card"><h5>Bed/Row Hotspots</h5>${hotspotsHtml}</div>
+    <div class="anx-card"><h5>Planning Suggestions</h5><div class="anx-recs">${recs.map(r=>`<div class="anx-rec${r.tone==='warn'?' warn':''}">${escapeHtml(r.text)}</div>`).join('')}</div></div>
+  </div>`;
+}
 function renderSeasonArchiveSummary(){
   const el=document.getElementById('seasonArchiveSummary');
   if(!el) return;
   const entries=Object.values(APP_STATE.seasonArchives||{}).sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0) || String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
   if(!entries.length){
     el.innerHTML='No season archives saved yet.';
+    renderSeasonAnalyticsPanel();
     return;
   }
   el.innerHTML=entries.slice(0,4).map(a=>{
@@ -1612,6 +1779,7 @@ function renderSeasonArchiveSummary(){
     const yld=a.yieldSummary?escapeHtml(a.yieldSummary):'No yield summary yet';
     return `<div class="pt-ba-item">${y} · ${escapeHtml(a.name)} · Pests ${escapeHtml(a.pestPressure)} · Disease ${escapeHtml(a.diseasePressure)} · ${rowCt} bed snapshots · ${cropCt} crop outcomes<br><span style="color:#6b7b6b">${yld}</span></div>`;
   }).join('');
+  renderSeasonAnalyticsPanel();
 }
 function renderSeasonArchiveControls(statusMsg=''){
   const select=document.getElementById('seasonArchiveSelect');

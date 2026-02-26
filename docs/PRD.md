@@ -113,3 +113,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Crop dataset + structured metadata extracted from `index.html` into `data/crops.js`
 - [x] Varieties import/merge script added for Claude HTML updates in `varieties/`
 - [x] Backup schema versioning + import migration handlers added (with preview/import migration notices)
+- [x] Season Analytics dashboard MVP added (archives + observations + variety winners/watchlist + bed/row hotspots + planning suggestions)
