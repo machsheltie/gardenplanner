@@ -109,3 +109,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Symptom lookup UI added to crop detail panel (interactive symptom chips + free-text lookup against structured IPM records)
 - [x] Observation log workflow added (date/crop/symptom/notes/photo ref) with local persistence, assistant context, and symptom-lookup handoff
 - [x] Observation log bed/row tagging added (Bed + Row selectors, persisted location labels, assistant/context integration)
+- [x] Observation -> season archive summarization helpers added (auto-suggest pest/disease pressure from logs + promote logs into crop outcomes)

@@ -327,6 +327,8 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <div class="pt-bed-actions">
 <button type="button" onclick="addSeasonArchiveCropOutcomeRow()">Add Crop Outcome Row</button>
 <button type="button" onclick="seedSeasonArchiveCropOutcomesFromPlanner()">Seed From Planner</button>
+<button type="button" onclick="suggestSeasonArchivePressureFromObservations()">Suggest Pressure from Logs</button>
+<button type="button" onclick="mergeObservationLogsIntoSeasonArchiveCropOutcomes()">Promote Logs to Outcomes</button>
 </div>
 <div id="seasonArchiveCropOutcomesEditor" class="pt-beds-list"></div>
 <div class="pt-bed-actions">
@@ -1421,6 +1423,128 @@ function hasSeasonArchiveDraftContent(){
   const form=seasonArchiveFormDataFromUi();
   const outcomes=getSeasonArchiveDraftCropOutcomes();
   return Boolean(form.yieldSummary||form.notes||outcomes.length);
+}
+function seasonArchiveTargetYear(){
+  return Math.max(2020,Math.min(2100,(Number(APP_STATE.planningYear)||new Date().getFullYear())-1));
+}
+function observationIssueSignalsForText(text){
+  const t=String(text||'').toLowerCase();
+  const pest=/\b(aphid|beetle|bug|worm|hornworm|earworm|borer|slug|caterpillar|maggot|mite|stink bug|insect|flea beetle|squash bug)\b/;
+  const disease=/\b(blight|mildew|wilt|rot|spot|rust|mosaic|lesion|canker|mold|fung|bacterial|downy)\b/;
+  return {pest:pest.test(t),disease:disease.test(t)};
+}
+function getObservationLogsForSeasonYear(year){
+  const y=String(year||'');
+  return getRecentObservationLogs(1000).filter(r=>String(r.date||'').startsWith(`${y}-`));
+}
+function summarizeObservationsForSeasonArchive(year=seasonArchiveTargetYear()){
+  const rows=getObservationLogsForSeasonYear(year);
+  const byCrop=new Map();
+  let pestHits=0,diseaseHits=0,photoCount=0;
+  for(const r of rows){
+    const txt=[r.symptom,r.notes].filter(Boolean).join(' ');
+    const sig=observationIssueSignalsForText(txt);
+    if(sig.pest) pestHits++;
+    if(sig.disease) diseaseHits++;
+    if(r.photoRef) photoCount++;
+    if(!r.cropName) continue;
+    const cur=byCrop.get(r.cropName)||{cropName:r.cropName,count:0,pest:0,disease:0,symptoms:[],locations:[],latestDate:''};
+    cur.count++;
+    if(sig.pest) cur.pest++;
+    if(sig.disease) cur.disease++;
+    if(r.symptom) cur.symptoms.push(r.symptom);
+    const loc=formatObservationBedRowLabel(r);
+    if(loc) cur.locations.push(loc);
+    if(!cur.latestDate || String(r.date)>String(cur.latestDate)) cur.latestDate=r.date;
+    byCrop.set(r.cropName,cur);
+  }
+  const total=rows.length;
+  const severityScore=(pestHits+diseaseHits)+(total>=6?1:0)+(total>=12?1:0);
+  const pressure=(hits)=>{
+    if(hits>=6 || total>=12 && hits>=4) return 'high';
+    if(hits>=2 || total>=5) return 'medium';
+    return 'low';
+  };
+  const cropSummaries=[...byCrop.values()].sort((a,b)=>b.count-a.count || a.cropName.localeCompare(b.cropName)).map(c=>{
+    const symptomCounts={};
+    c.symptoms.forEach(s=>{ const k=String(s).trim(); if(k) symptomCounts[k]=(symptomCounts[k]||0)+1; });
+    const topSym=Object.entries(symptomCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+    const locCounts={};
+    c.locations.forEach(l=>{ locCounts[l]=(locCounts[l]||0)+1; });
+    const topLoc=Object.entries(locCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+    return {...c,topSymptom:topSym,topLocation:topLoc};
+  });
+  return {
+    year,total,photoCount,pestHits,diseaseHits,
+    pestPressure:pressure(pestHits),
+    diseasePressure:pressure(diseaseHits),
+    cropSummaries,
+    summaryLine:`${total} observations (${photoCount} with photo refs), pests flagged ${pestHits}, disease flags ${diseaseHits}.`
+  };
+}
+function suggestSeasonArchivePressureFromObservations(){
+  const s=summarizeObservationsForSeasonArchive();
+  if(!s.total){
+    setSeasonArchiveStatus(`No observation logs found for ${s.year}. Add observations first or change planning year.`);
+    return;
+  }
+  const pestEl=document.getElementById('seasonArchivePestPressure');
+  const disEl=document.getElementById('seasonArchiveDiseasePressure');
+  const yldEl=document.getElementById('seasonArchiveYieldSummary');
+  const notesEl=document.getElementById('seasonArchiveNotes');
+  if(pestEl) pestEl.value=s.pestPressure;
+  if(disEl) disEl.value=s.diseasePressure;
+  if(yldEl && !String(yldEl.value||'').trim()){
+    yldEl.value=`${s.year} observation summary: ${s.summaryLine}`;
+  }
+  if(notesEl){
+    const cropLine=s.cropSummaries.slice(0,5).map(c=>`${c.cropName} (${c.count} logs${c.topLocation?`, ${c.topLocation}`:''}${c.topSymptom?`, ${c.topSymptom}`:''})`).join('; ');
+    const append=`Observation summary (${s.year}): ${s.summaryLine}${cropLine?` Top crops: ${cropLine}.`:''}`;
+    if(!String(notesEl.value||'').includes(`Observation summary (${s.year})`)){
+      notesEl.value=[String(notesEl.value||'').trim(),append].filter(Boolean).join('\n');
+    }
+  }
+  handleSeasonArchiveUiChange();
+  setSeasonArchiveStatus(`Suggested pest/disease pressure from ${s.total} observation logs for ${s.year} (pests ${s.pestPressure}, disease ${s.diseasePressure}).`);
+}
+function mergeObservationLogsIntoSeasonArchiveCropOutcomes(){
+  const s=summarizeObservationsForSeasonArchive();
+  if(!s.total){
+    setSeasonArchiveStatus(`No observation logs found for ${s.year}. Nothing to promote into crop outcomes.`);
+    return;
+  }
+  syncSeasonArchiveCropOutcomesFromUi();
+  const current=getSeasonArchiveDraftCropOutcomes();
+  const byCrop=new Map(current.map(r=>[r.cropName,r]));
+  let added=0,updated=0;
+  for(const c of s.cropSummaries){
+    const base=byCrop.get(c.cropName) || cropOutcomeRowTemplate({cropName:c.cropName});
+    const next={...base};
+    if(!next.pestIssue && c.pest>0) next.pestIssue=c.topSymptom||`Observation logs flagged pest-like issues (${c.pest})`;
+    if(!next.diseaseIssue && c.disease>0) next.diseaseIssue=c.topSymptom||`Observation logs flagged disease-like issues (${c.disease})`;
+    if(!next.notes){
+      next.notes=`${c.count} observation log${c.count===1?'':'s'} in ${s.year}${c.topLocation?` · frequent location ${c.topLocation}`:''}${c.topSymptom?` · top symptom ${c.topSymptom}`:''}`;
+    }else if(!/observation log/i.test(next.notes)){
+      next.notes=`${next.notes} | ${c.count} observation log${c.count===1?'':'s'} in ${s.year}${c.topLocation?` @ ${c.topLocation}`:''}`;
+    }
+    if(!byCrop.has(c.cropName)){
+      const issueCount=c.pest+c.disease;
+      next.outcome=issueCount>=4?'fair':'good';
+      current.push(cropOutcomeRowTemplate(next));
+      byCrop.set(c.cropName,next);
+      added++;
+    }else{
+      const idx=current.findIndex(r=>r.cropName===c.cropName);
+      if(idx>=0){
+        current[idx]=cropOutcomeRowTemplate({...current[idx],...next});
+        updated++;
+      }
+    }
+  }
+  APP_STATE.seasonArchiveDraft={cropOutcomes:normalizeSeasonArchiveCropOutcomes(current)};
+  renderSeasonArchiveCropOutcomesEditor();
+  handleSeasonArchiveUiChange();
+  setSeasonArchiveStatus(`Promoted observation logs (${s.year}) into crop outcomes: ${added} added, ${updated} updated.`);
 }
 function syncSeasonArchiveCropOutcomesFromUi(){
   const rows=[...document.querySelectorAll('#seasonArchiveCropOutcomesEditor .sa-co-row')];
