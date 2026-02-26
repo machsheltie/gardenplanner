@@ -110,3 +110,6 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Observation log workflow added (date/crop/symptom/notes/photo ref) with local persistence, assistant context, and symptom-lookup handoff
 - [x] Observation log bed/row tagging added (Bed + Row selectors, persisted location labels, assistant/context integration)
 - [x] Observation -> season archive summarization helpers added (auto-suggest pest/disease pressure from logs + promote logs into crop outcomes)
+- [x] Crop dataset + structured metadata extracted from `index.html` into `data/crops.js`
+- [x] Varieties import/merge script added for Claude HTML updates in `varieties/`
+- [x] Backup schema versioning + import migration handlers added (with preview/import migration notices)
