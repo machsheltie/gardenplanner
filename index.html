@@ -502,6 +502,7 @@ const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardene
 const BACKUP_SCHEMA_VERSION=2;
 const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},observationLogs:[],weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
+const SEASON_ANALYTICS_CACHE={key:'',value:null};
 const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives',observationLogs:'gardenPlanner.observationLogs'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
@@ -1621,11 +1622,69 @@ function getObservationSummaries(limit=8,cropName=''){
     photoRef:r.photoRef
   }));
 }
+function seasonAnalyticsCacheKey(){
+  const archives=getSeasonArchivesSorted();
+  const archiveSig=archives.slice(0,20).map(a=>`${a.name}|${a.updatedAt||''}|${(a.cropOutcomes||[]).length}`).join('~');
+  const obs=(APP_STATE.observationLogs||[]);
+  const obsSig=obs.slice(0,30).map(o=>`${o.id||''}|${o.updatedAt||''}|${o.date||''}`).join('~');
+  const bedSig=(APP_STATE.beds||[]).map(b=>`${b.id}|${b.name}`).join('~');
+  return `a:${archives.length}:${archiveSig}::o:${obs.length}:${obsSig}::b:${bedSig}`;
+}
+function getSeasonAnalyticsSnapshot(){
+  const key=seasonAnalyticsCacheKey();
+  if(SEASON_ANALYTICS_CACHE.key===key && SEASON_ANALYTICS_CACHE.value) return SEASON_ANALYTICS_CACHE.value;
+  const value=computeSeasonAnalytics();
+  SEASON_ANALYTICS_CACHE.key=key;
+  SEASON_ANALYTICS_CACHE.value=value;
+  return value;
+}
+function cropDiseaseRiskKeywordHit(sc){
+  const txt=(sc?.ipm?.commonDiseases||[]).join(' ').toLowerCase();
+  return /\b(mildew|blight|rot|wilt|spot|rust|phytophthora|septoria)\b/.test(txt);
+}
+function getPlannerAnalyticsForCrop(crop,sc=getStructuredCrop(crop),analytics=getSeasonAnalyticsSnapshot()){
+  const cropName=String(crop?.name||'');
+  if(!cropName || !analytics) return null;
+  return {
+    cropTrend:analytics.cropStatsByName?.[cropName]||null,
+    varietyWinners:(analytics.varietyByCrop?.[cropName]?.winners||[]).slice(0,2),
+    varietyWatch:(analytics.varietyByCrop?.[cropName]?.watchlist||[]).slice(0,2),
+    hotspotHits:(analytics.cropHotspotsByName?.[cropName]||[]).slice(0,4),
+    diseaseSensitive:cropDiseaseRiskKeywordHit(sc)
+  };
+}
+function bedAnalyticsRiskForCrop(bed,crop,sc=getStructuredCrop(crop),analytics=getSeasonAnalyticsSnapshot()){
+  const out={scoreAdj:0,reasons:[],severity:0};
+  if(!bed||!crop||!analytics) return out;
+  const bedName=String(bed.name||'');
+  const bedAgg=analytics.bedHotspotsByBed?.[bedName]||null;
+  const cropHits=(analytics.cropHotspotsByName?.[crop.name]||[]).filter(h=>h.bedName===bedName);
+  const diseaseSensitive=cropDiseaseRiskKeywordHit(sc);
+  if(bedAgg){
+    let pen=0;
+    if(diseaseSensitive && bedAgg.diseaseHits>=2) pen+=Math.min(5,1+bedAgg.diseaseHits);
+    else if(bedAgg.obsCount>=4) pen+=Math.min(3,Math.floor(bedAgg.obsCount/2));
+    if(bedAgg.pestHits>=4) pen+=1;
+    if(pen){
+      out.scoreAdj-=pen;
+      out.severity=Math.max(out.severity,pen);
+      out.reasons.push(`${bedName} hotspot (${bedAgg.obsCount} logs; pest ${bedAgg.pestHits}, disease ${bedAgg.diseaseHits})`);
+    }
+  }
+  if(cropHits.length){
+    const hit=cropHits[0];
+    const pen=Math.min(6,Math.max(2,Math.round(hit.score)));
+    out.scoreAdj-=pen;
+    out.severity=Math.max(out.severity,pen);
+    out.reasons.push(`Past ${crop.name} issues in ${hit.label} (${hit.obsCount} obs)`);
+  }
+  return out;
+}
 function computeSeasonAnalytics(){
   const archives=getSeasonArchivesSorted();
   const observations=normalizeObservationLogs(APP_STATE.observationLogs||[]);
   const scoreMap={poor:1,fair:2,good:3,great:4};
-  const cropStats=new Map(), varietyStats=new Map(), yearStats=new Map(), hotspotStats=new Map();
+  const cropStats=new Map(), varietyStats=new Map(), yearStats=new Map(), hotspotStats=new Map(), bedHotspots=new Map(), cropHotspotStats=new Map();
   const ensureCrop=(name)=>{
     if(!cropStats.has(name)) cropStats.set(name,{cropName:name,outcomeCount:0,scoreSum:0,great:0,good:0,fair:0,poor:0,pestHits:0,diseaseHits:0,obsCount:0});
     return cropStats.get(name);
@@ -1676,6 +1735,26 @@ function computeSeasonAnalytics(){
       if(sig.disease) hs.diseaseHits++;
       if(o.cropName) hs.crops.add(o.cropName);
       hotspotStats.set(loc,hs);
+      const bedName=String(loc).split(' / ')[0];
+      if(bedName){
+        const bh=bedHotspots.get(bedName)||{bedName,obsCount:0,pestHits:0,diseaseHits:0,rows:new Set(),crops:new Set()};
+        bh.obsCount++;
+        if(sig.pest) bh.pestHits++;
+        if(sig.disease) bh.diseaseHits++;
+        if(/ \/ R\d+$/i.test(loc)) bh.rows.add(loc);
+        if(o.cropName) bh.crops.add(o.cropName);
+        bedHotspots.set(bedName,bh);
+      }
+      if(o.cropName){
+        const ck=o.cropName;
+        const map=cropHotspotStats.get(ck)||new Map();
+        const ch=map.get(loc)||{label:loc,bedName:String(loc).split(' / ')[0]||'',obsCount:0,pestHits:0,diseaseHits:0};
+        ch.obsCount++;
+        if(sig.pest) ch.pestHits++;
+        if(sig.disease) ch.diseaseHits++;
+        map.set(loc,ch);
+        cropHotspotStats.set(ck,map);
+      }
     }
   }
   const crops=[...cropStats.values()].map(c=>({
@@ -1695,9 +1774,40 @@ function computeSeasonAnalytics(){
     cropCount:h.crops.size,
     score:(h.diseaseHits*2)+(h.pestHits*1.25)+(h.obsCount*.25)
   })).sort((a,b)=>b.score-a.score || b.obsCount-a.obsCount || a.label.localeCompare(b.label));
+  const bedHotspotRows=[...bedHotspots.values()].map(h=>({
+    bedName:h.bedName,
+    obsCount:h.obsCount,
+    pestHits:h.pestHits,
+    diseaseHits:h.diseaseHits,
+    rowCount:h.rows.size,
+    cropCount:h.crops.size,
+    score:(h.diseaseHits*2)+(h.pestHits*1.2)+(h.obsCount*.2)
+  })).sort((a,b)=>b.score-a.score || b.obsCount-a.obsCount || a.bedName.localeCompare(b.bedName));
+  const cropHotspotsByName=Object.fromEntries([...cropHotspotStats.entries()].map(([cropName,locMap])=>[
+    cropName,
+    [...locMap.values()].map(h=>({
+      ...h,
+      score:(h.diseaseHits*2)+(h.pestHits*1.25)+(h.obsCount*.2)
+    })).sort((a,b)=>b.score-a.score || b.obsCount-a.obsCount || a.label.localeCompare(b.label))
+  ]));
   const topVarietyWinners=varieties.filter(v=>v.count>=1).sort((a,b)=>b.avgOutcome-a.avgOutcome || b.count-a.count || a.cropName.localeCompare(b.cropName)).slice(0,5);
   const topVarietyLosers=varieties.filter(v=>v.count>=1).sort((a,b)=>a.avgOutcome-b.avgOutcome || b.count-a.count || a.cropName.localeCompare(b.cropName)).slice(0,5);
   const recurringCropIssues=crops.filter(c=>c.issueLoad>0 || c.outcomeCount>0).sort((a,b)=>b.issueLoad-a.issueLoad || a.avgOutcome-b.avgOutcome || a.cropName.localeCompare(b.cropName)).slice(0,6);
+  const cropStatsByName=Object.fromEntries(crops.map(c=>[c.cropName,c]));
+  const bedHotspotsByBed=Object.fromEntries(bedHotspotRows.map(b=>[b.bedName,b]));
+  const varietiesByCrop=new Map();
+  varieties.forEach(v=>{
+    const arr=varietiesByCrop.get(v.cropName)||[];
+    arr.push(v);
+    varietiesByCrop.set(v.cropName,arr);
+  });
+  const varietyByCrop=Object.fromEntries([...varietiesByCrop.entries()].map(([cropName,arr])=>[
+    cropName,
+    {
+      winners:[...arr].sort((a,b)=>b.avgOutcome-a.avgOutcome || b.count-a.count || a.variety.localeCompare(b.variety)).slice(0,4),
+      watchlist:[...arr].sort((a,b)=>a.avgOutcome-b.avgOutcome || b.count-a.count || a.variety.localeCompare(b.variety)).slice(0,4)
+    }
+  ]));
   return {
     archiveCount:archives.length,
     observationCount:observations.length,
@@ -1708,6 +1818,11 @@ function computeSeasonAnalytics(){
     topVarietyLosers,
     recurringCropIssues,
     hotspots:hotspots.slice(0,6),
+    bedHotspots:bedHotspotRows.slice(0,6),
+    cropStatsByName,
+    bedHotspotsByBed,
+    cropHotspotsByName,
+    varietyByCrop,
     years,
     crops
   };
@@ -1737,7 +1852,7 @@ function buildSeasonAnalyticsRecommendations(a){
 function renderSeasonAnalyticsPanel(){
   const host=document.getElementById('seasonAnalyticsPanel');
   if(!host) return;
-  const a=computeSeasonAnalytics();
+  const a=getSeasonAnalyticsSnapshot();
   if(!a.archiveCount && !a.observationCount){
     host.innerHTML='<div class="pt-bed-summary">Add season archives and observations to see trends, winners, and bed/row hotspots.</div>';
     return;
@@ -2113,6 +2228,8 @@ function bedSuitabilityScoreForCrop(bed,crop,sc){
   const wet=weatherRiskFlags(crop).wetFootRisk;
   if(wet && dRank===0) score-=4;
   if(wet && dRank>=2) score+=2;
+  const ar=bedAnalyticsRiskForCrop(bed,crop,sc);
+  score+=Number(ar.scoreAdj||0);
   return score;
 }
 function isLikelyTrellisCrop(crop,sc){
@@ -2478,9 +2595,24 @@ function estimateCropPlan(crop,people=APP_STATE.peopleCount,mode=APP_STATE.plann
   const multiplier=Math.max(1,Number(people)||1);
   const baseSuccess=Math.min(.95,Math.max(.45,hp.successFactor||.75));
   const latestOutcome=getLatestCropOutcome(crop.name);
+  const analytics=getPlannerAnalyticsForCrop(crop,sc);
   const outcomeMultMap={poor:.86,fair:.93,good:1.02,great:1.08};
   const historySuccessMultiplier=latestOutcome?Math.max(.8,Math.min(1.15,Number(outcomeMultMap[latestOutcome.outcome]||1))):1;
-  const success=Math.min(.95,Math.max(.45,baseSuccess*historySuccessMultiplier));
+  let analyticsSuccessMultiplier=1;
+  const trend=analytics?.cropTrend||null;
+  if(trend){
+    if(trend.outcomeCount>=2){
+      if(trend.avgOutcome<=2.1) analyticsSuccessMultiplier*=.92;
+      else if(trend.avgOutcome<=2.5) analyticsSuccessMultiplier*=.96;
+      else if(trend.avgOutcome>=3.4) analyticsSuccessMultiplier*=1.05;
+      else if(trend.avgOutcome>=3.1) analyticsSuccessMultiplier*=1.02;
+    }
+    if(trend.issueLoad>=8) analyticsSuccessMultiplier*=.9;
+    else if(trend.issueLoad>=4) analyticsSuccessMultiplier*=.95;
+    else if(trend.outcomeCount>=2 && trend.issueLoad===0) analyticsSuccessMultiplier*=1.02;
+  }
+  analyticsSuccessMultiplier=Math.max(.84,Math.min(1.12,analyticsSuccessMultiplier));
+  const success=Math.min(.95,Math.max(.45,baseSuccess*historySuccessMultiplier*analyticsSuccessMultiplier));
   const baseMin=Math.ceil((rawRange[0]*multiplier)/success);
   const baseMax=Math.ceil((rawRange[1]*multiplier)/success);
   const baseRec=Math.ceil(((rawRange[0]+rawRange[1])/2*multiplier)/success);
@@ -2493,7 +2625,18 @@ function estimateCropPlan(crop,people=APP_STATE.peopleCount,mode=APP_STATE.plann
   else if(sp?.inRowIn&&sp?.betweenRowsIn) areaSqFt=+((recPlants*(sp.inRowIn*sp.betweenRowsIn))/144).toFixed(1);
   const areaPerPlant=areaSqFt&&recPlants?+(areaSqFt/recPlants).toFixed(3):null;
   const historyAdjustment=latestOutcome?{applied:Math.abs(historySuccessMultiplier-1)>.01,outcome:latestOutcome.outcome,multiplier:+historySuccessMultiplier.toFixed(2),baseSuccess:+baseSuccess.toFixed(2),archiveYear:latestOutcome.archiveYear||null,archiveName:latestOutcome.archiveName||'',variety:latestOutcome.variety||'',yieldAmount:latestOutcome.yieldAmount||'',pestIssue:latestOutcome.pestIssue||'',diseaseIssue:latestOutcome.diseaseIssue||'',notes:latestOutcome.notes||''}:null;
-  return {minPlants,maxPlants,recPlants,areaSqFt,areaPerPlant,success,baseSuccess,rangeBase:rawRange,spacingText:fmtSpacing(sp),recipeBoost,baseRec,historyAdjustment};
+  const analyticsAdjustment=trend?{
+    applied:Math.abs(analyticsSuccessMultiplier-1)>.01,
+    multiplier:+analyticsSuccessMultiplier.toFixed(2),
+    outcomeCount:trend.outcomeCount||0,
+    avgOutcome:Number.isFinite(trend.avgOutcome)?+trend.avgOutcome.toFixed(2):0,
+    issueLoad:trend.issueLoad||0,
+    obsCount:trend.obsCount||0,
+    winners:analytics?.varietyWinners||[],
+    watchlist:analytics?.varietyWatch||[],
+    hotspots:analytics?.hotspotHits||[]
+  }:null;
+  return {minPlants,maxPlants,recPlants,areaSqFt,areaPerPlant,success,baseSuccess,rangeBase:rawRange,spacingText:fmtSpacing(sp),recipeBoost,baseRec,historyAdjustment,analyticsAdjustment};
 }
 function getRecipeTargetWeight(){
   const t=APP_STATE.recipeTargets||RECIPE_TARGET_DEFAULTS;
@@ -2512,6 +2655,10 @@ function computePlannerPriorityScore(row){
   if(crop.season==='cool' && (CAL_MONTH<=3 || CAL_MONTH>=7)) score+=2;
   if(crop.season==='warm' && CAL_MONTH>=3 && CAL_MONTH<=8) score+=2;
   if(plan.areaSqFt && plan.areaSqFt>0) score+=Math.max(0,6-Math.min(6,plan.areaSqFt/10));
+  const aa=plan.analyticsAdjustment;
+  if(aa?.winners?.length && (aa.winners[0]?.avgOutcome||0)>=3.2) score+=2;
+  if(aa?.watchlist?.length && (aa.watchlist[0]?.count||0)>=2 && (aa.watchlist[0]?.avgOutcome||0)<=2.2) score-=1.5;
+  if(aa?.hotspots?.length && aa.hotspots[0]?.score>=4) score-=.75;
   if(getRecipeTargetWeight()===0 && priorityMode==='recipe_first') score+=0;
   return +score.toFixed(2);
 }
@@ -2832,13 +2979,35 @@ function renderPeoplePlanner(){
       note.push(`History ${plan.historyAdjustment.outcome} (${plan.historyAdjustment.archiveYear||'last'}): ${Math.round((plan.baseSuccess||plan.success)*100)}%→${Math.round(plan.success*100)}%`);
       if(plan.historyAdjustment.variety) note.push(`Var winner: ${plan.historyAdjustment.variety}`);
     }
+    if(plan.analyticsAdjustment?.applied){
+      note.push(`Analytics ${plan.analyticsAdjustment.outcomeCount} seasons: avg ${round1(plan.analyticsAdjustment.avgOutcome)}/4, issue load ${plan.analyticsAdjustment.issueLoad} (${Math.round((plan.analyticsAdjustment.multiplier||1)*100)}% factor)`);
+    }
+    if(plan.analyticsAdjustment?.winners?.length){
+      const win=plan.analyticsAdjustment.winners[0];
+      note.push(`Top variety trend: ${win.variety} (${round1(win.avgOutcome)}/4)`);
+    }
+    if(plan.analyticsAdjustment?.watchlist?.length){
+      const bad=plan.analyticsAdjustment.watchlist[0];
+      if((bad.count||0)>=2 && (bad.avgOutcome||0)<=2.4) note.push(`Watchlist variety: ${bad.variety} (${round1(bad.avgOutcome)}/4)`);
+    }
+    if(plan.analyticsAdjustment?.hotspots?.length){
+      note.push(`Hotspots: ${plan.analyticsAdjustment.hotspots.slice(0,2).map(h=>`${h.label}`).join(', ')}`);
+    }
     if(plan.recipeBoost?.plantsRounded)note.push(`Recipe +${plan.recipeBoost.plantsRounded}${plan.recipeBoost.mode==='profile'?' (profile)':''}`);
     if(sc.recipeProfiles?.length) note.push(`Recipes: ${sc.recipeProfiles.map(p=>p.recipe).join(', ')}`);
     const picks=getRecipeVarietySuggestions(crop);
     if(picks.length) note.push(`Varieties: ${picks.map(p=>`${p.name} [${p.tags.join('/')}]`).slice(0,2).join('; ')}`);
     if(alloc?.lockedToBed && alloc?.preferredBedId) note.push(`Locked placement`);
     note.push(`Priority ${selected?.name===crop.name?'selected + ':''}${Number(priorityScore||0).toFixed(1)}`);
-    if(alloc?.bedAssignments?.length) note.push(`Beds: ${alloc.bedAssignments.map(a=>`${a.bedName} (${a.plants})`).join(', ')}`);
+    if(alloc?.bedAssignments?.length){
+      const analytics=getSeasonAnalyticsSnapshot();
+      const bedNotes=alloc.bedAssignments.map(a=>{
+        const bed=(allocation.beds||[]).find(b=>b.id===a.bedId) || {name:a.bedName};
+        const risk=bedAnalyticsRiskForCrop(bed,crop,sc,analytics);
+        return `${a.bedName} (${a.plants})${risk.severity>=4?' !risk':''}`;
+      });
+      note.push(`Beds: ${bedNotes.join(', ')}`);
+    }
     const plantsCell=alloc?.status==='partial'?`<strong>${plan.recPlants}</strong><br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedPlants}</span>`:`<strong>${plan.recPlants}</strong>`;
     const sqFtCell=alloc?.status==='partial'?`${plan.areaSqFt??'N/A'}<br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedSqFt}</span>`:(plan.areaSqFt??'N/A');
     return `<tr><td><div><strong>${crop.name}</strong></div><div class="pt-chip">${crop.cat}</div></td><td>${plan.spacingText}</td><td>${plantsCell}</td><td>${sqFtCell}</td><td>${plannerStatusLabel(alloc,plan)}</td><td>${note.filter(Boolean).join(' · ')}</td></tr>`;
@@ -2849,7 +3018,9 @@ function renderPeoplePlanner(){
     ? ` · Manual cap: <strong>${APP_STATE.bedSpaceLimit.toFixed(0)} sq ft</strong> · Fit: <strong>${allocation.usedSqFt?.toFixed?allocation.usedSqFt.toFixed(1):allocation.usedSqFt} sq ft</strong>${allocation.remainingSqFt!=null?` · Remaining: <strong>${allocation.remainingSqFt.toFixed(1)} sq ft</strong>`:''}`
     : '';
   const bedsTxt=allocation.hasBeds?` · Beds total: <strong>${(allocation.bedsTotalSqFt||0).toFixed(1)} sq ft</strong>`:'';
-  sum.innerHTML=`Planner rows: <strong>${rows.length}</strong> · Household: <strong>${APP_STATE.peopleCount}</strong> · Goal: <strong>${APP_STATE.plannerMode}</strong> · Space priority: <strong>${(APP_STATE.plannerPriorityMode||'balanced').replace('_',' ')}</strong> · Recipe boost: <strong>+${totalRecipePlants}</strong> plants · Estimated bed footprint: <strong>${totalSqFt.toFixed(1)} sq ft</strong>${bedsTxt}${limitTxt}`;
+  const analytics=getSeasonAnalyticsSnapshot();
+  const analyticsTxt=(analytics.archiveCount||analytics.observationCount)?` · Analytics: <strong>${analytics.archiveCount}</strong> archives / <strong>${analytics.observationCount}</strong> observations`:'';
+  sum.innerHTML=`Planner rows: <strong>${rows.length}</strong> · Household: <strong>${APP_STATE.peopleCount}</strong> · Goal: <strong>${APP_STATE.plannerMode}</strong> · Space priority: <strong>${(APP_STATE.plannerPriorityMode||'balanced').replace('_',' ')}</strong> · Recipe boost: <strong>+${totalRecipePlants}</strong> plants · Estimated bed footprint: <strong>${totalSqFt.toFixed(1)} sq ft</strong>${bedsTxt}${limitTxt}${analyticsTxt}`;
 }
 function handlePlannerControls(){
   const people=document.getElementById('peopleCountInput');
