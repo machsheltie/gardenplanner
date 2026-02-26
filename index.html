@@ -204,6 +204,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-rowlane:last-child{margin-bottom:0}
 .pt-rowlane-label{font-size:.72em;color:#4f5f4f;font-weight:600}
 .pt-rowlane-label .trellis{color:#7c5200}
+.pt-rowlane-label .risk{color:#991b1b}
 .pt-rowlane-prev{display:block;margin-top:2px}
 .pt-rowlane-prev select{width:100%;font-size:.68em;border:1px solid #d4ddd4;border-radius:6px;padding:1px 4px;background:#fff;color:#465646}
 .pt-rowlane-track{position:relative;height:20px;background:#eef4eb;border:1px solid #dfe8dc;border-radius:999px;overflow:hidden}
@@ -213,6 +214,7 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .pt-rowlane-seg.tight{box-shadow:inset 0 0 0 2px #ef4444}
 .pt-rowlane-overflow{font-size:.68em;color:#92400e;margin-left:60px;margin-top:-2px;margin-bottom:4px}
 .pt-rowlane-warning{font-size:.68em;color:#92400e;margin-left:60px;margin-top:-2px;margin-bottom:4px}
+.pt-rowlane-hint{font-size:.68em;color:#5a6a5a;margin-left:60px;margin-top:-2px;margin-bottom:4px}
 .vrtags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .vrtag{display:inline-block;background:#eef6ea;color:#2d5a27;border-radius:999px;padding:2px 7px;font-size:.7em;font-weight:600}
 .vrtag.recipe{background:#fff3cd;color:#7c5200}
@@ -1642,6 +1644,32 @@ function cropDiseaseRiskKeywordHit(sc){
   const txt=(sc?.ipm?.commonDiseases||[]).join(' ').toLowerCase();
   return /\b(mildew|blight|rot|wilt|spot|rust|phytophthora|septoria)\b/.test(txt);
 }
+function rowLabelForBedLane(bed,laneIndex){
+  return `${String(bed?.name||'Bed')} / R${Math.max(0,Number(laneIndex)||0)+1}`;
+}
+function getRowPlacementAnalyticsForCrop(bed,laneIndex,crop,sc=getStructuredCrop(crop),analytics=getSeasonAnalyticsSnapshot()){
+  const out={scoreAdj:0,reasons:[],severity:0,label:rowLabelForBedLane(bed,laneIndex),generic:null,cropHit:null};
+  if(!bed||!crop||!analytics) return out;
+  const label=out.label;
+  const generic=analytics.hotspotByLabel?.[label]||null;
+  const cropHit=(analytics.cropHotspotsByName?.[crop.name]||[]).find(h=>h.label===label)||null;
+  out.generic=generic; out.cropHit=cropHit;
+  let pen=0;
+  if(generic){
+    if(cropDiseaseRiskKeywordHit(sc) && generic.diseaseHits>=2) pen+=Math.min(5,1+generic.diseaseHits);
+    else if(generic.obsCount>=3) pen+=Math.min(2,Math.floor(generic.obsCount/2));
+    if(generic.pestHits>=4) pen+=1;
+    if(pen) out.reasons.push(`${label} hotspot (${generic.obsCount} obs; pest ${generic.pestHits}, disease ${generic.diseaseHits})`);
+  }
+  if(cropHit){
+    const cropPen=Math.min(6,Math.max(2,Math.round(cropHit.score||0)));
+    pen+=cropPen;
+    out.reasons.push(`Past ${crop.name} issues logged in ${label} (${cropHit.obsCount} obs)`);
+  }
+  out.scoreAdj=-pen;
+  out.severity=pen;
+  return out;
+}
 function getPlannerAnalyticsForCrop(crop,sc=getStructuredCrop(crop),analytics=getSeasonAnalyticsSnapshot()){
   const cropName=String(crop?.name||'');
   if(!cropName || !analytics) return null;
@@ -1774,6 +1802,7 @@ function computeSeasonAnalytics(){
     cropCount:h.crops.size,
     score:(h.diseaseHits*2)+(h.pestHits*1.25)+(h.obsCount*.25)
   })).sort((a,b)=>b.score-a.score || b.obsCount-a.obsCount || a.label.localeCompare(b.label));
+  const hotspotByLabel=Object.fromEntries(hotspots.map(h=>[h.label,h]));
   const bedHotspotRows=[...bedHotspots.values()].map(h=>({
     bedName:h.bedName,
     obsCount:h.obsCount,
@@ -1818,6 +1847,7 @@ function computeSeasonAnalytics(){
     topVarietyLosers,
     recurringCropIssues,
     hotspots:hotspots.slice(0,6),
+    hotspotByLabel,
     bedHotspots:bedHotspotRows.slice(0,6),
     cropStatsByName,
     bedHotspotsByBed,
@@ -2253,7 +2283,13 @@ function buildBedRowSnapLayout(allocation,bed){
   if(settings.mode!=='rows') return null;
   const rowLenFt=Math.max(1,Number(bed?.lengthFt)||1);
   const rowHistory=normalizeBedRowHistory(bed?.rowHistory,settings.rowCount);
-  const lanes=Array.from({length:settings.rowCount},(_,i)=>({index:i,label:`R${i+1}`,remainingFt:rowLenFt,segments:[],overflowFt:0,isTrellis:false,prevFamily:rowHistory[i]||'none',dominantFamily:'none',rotationWarning:''}));
+  const analytics=getSeasonAnalyticsSnapshot();
+  const lanes=Array.from({length:settings.rowCount},(_,i)=>{
+    const rowLabel=rowLabelForBedLane(bed,i);
+    const rowHotspot=analytics?.hotspotByLabel?.[rowLabel]||null;
+    const rowHint=rowHotspot?`${rowHotspot.obsCount} obs · pest ${rowHotspot.pestHits} · disease ${rowHotspot.diseaseHits}`:'';
+    return {index:i,label:`R${i+1}`,rowLabel,remainingFt:rowLenFt,segments:[],overflowFt:0,isTrellis:false,prevFamily:rowHistory[i]||'none',dominantFamily:'none',rotationWarning:'',rowHotspot,rowHint};
+  });
   if(settings.trellisSide!=='none'){
     const trellisIndex=(settings.trellisSide==='south' || settings.trellisSide==='west') ? lanes.length-1 : 0;
     if(lanes[trellisIndex]){ lanes[trellisIndex].isTrellis=true; lanes[trellisIndex].label=`R${trellisIndex+1}`; }
@@ -2269,21 +2305,31 @@ function buildBedRowSnapLayout(allocation,bed){
     const rowFeetNeeded=round1((Number(hit.sqFt)||0)/Math.max(0.5,betweenRowsIn/12));
     const isTrellis=isLikelyTrellisCrop(r.crop,sc);
     const tooTight=betweenRowsIn>(settings.actualRowSpacingIn*1.15);
-    rowAssignments.push({crop:r.crop,sc,color:cropColor(r.crop.name),plants:hit.plants,sqFt:hit.sqFt,rowFeetNeeded,betweenRowsIn,isTrellis,tooTight,locked:Boolean(r.allocation?.lockedToBed),preferredBedId:r.allocation?.preferredBedId||null,preferredRowIndex});
+    const rotationFamily=getRotationFamily(r.crop,sc);
+    rowAssignments.push({crop:r.crop,sc,color:cropColor(r.crop.name),plants:hit.plants,sqFt:hit.sqFt,rowFeetNeeded,betweenRowsIn,isTrellis,tooTight,locked:Boolean(r.allocation?.lockedToBed),preferredBedId:r.allocation?.preferredBedId||null,preferredRowIndex,rotationFamily});
   });
   rowAssignments.sort((a,b)=>(b.isTrellis?1:0)-(a.isTrellis?1:0)||b.rowFeetNeeded-a.rowFeetNeeded||a.crop.name.localeCompare(b.crop.name));
   for(const item of rowAssignments){
     let need=Math.max(0,item.rowFeetNeeded||0);
     const laneOrder=lanes
-      .map((lane,idx)=>({lane,idx,score:(item.preferredRowIndex===idx?200:0)+(item.isTrellis&&lane.isTrellis?100:0)+(lane.isTrellis&&!item.isTrellis?-4:0)+lane.remainingFt}))
+      .map((lane,idx)=>{
+        const rowAnalytics=getRowPlacementAnalyticsForCrop(bed,idx,item.crop,item.sc,analytics);
+        const sameFamilyRotation=(lane.prevFamily && lane.prevFamily!=='none' && item.rotationFamily && item.rotationFamily!=='none' && lane.prevFamily===item.rotationFamily);
+        const rotationPenalty=sameFamilyRotation?120:0;
+        const score=(item.preferredRowIndex===idx?200:0)+(item.isTrellis&&lane.isTrellis?100:0)+(lane.isTrellis&&!item.isTrellis?-4:0)+(lane.remainingFt*1.2)+(Number(rowAnalytics.scoreAdj||0)*8)-rotationPenalty;
+        return {lane,idx,score,rowAnalytics,rotationPenalty,sameFamilyRotation};
+      })
       .sort((a,b)=>b.score-a.score||a.idx-b.idx);
+    item.suggestedRowIndex=laneOrder[0]?.idx??null;
+    item.suggestedRowReason=laneOrder[0]?.sameFamilyRotation?'rotation break':(laneOrder[0]?.rowAnalytics?.severity?'row hotspot avoidance':(item.isTrellis?'trellis lane':'row capacity'));
     for(const {lane} of laneOrder){
       if(need<=0) break;
       if(lane.remainingFt<=0) continue;
       const take=round1(Math.min(need,lane.remainingFt));
       if(take<=0) continue;
       const usedFt=round1(rowLenFt-lane.remainingFt);
-      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis,preferredRow:Boolean(item.preferredRowIndex===lane.index),rotationFamily:getRotationFamily(item.crop,item.sc)});
+      const laneRisk=getRowPlacementAnalyticsForCrop(bed,lane.index,item.crop,item.sc,analytics);
+      lane.segments.push({cropName:item.crop.name,color:item.color,startFt:usedFt,lenFt:take,plants:item.plants,sqFt:item.sqFt,tight:item.tooTight,locked:item.locked,betweenRowsIn:item.betweenRowsIn,isTrellis:item.isTrellis,preferredRow:Boolean(item.preferredRowIndex===lane.index),rotationFamily:item.rotationFamily,rowRiskSeverity:laneRisk.severity||0,rowRiskHit:Boolean(laneRisk.severity)});
       lane.remainingFt=round1(Math.max(0,lane.remainingFt-take));
       need=round1(Math.max(0,need-take));
     }
@@ -2301,6 +2347,11 @@ function buildBedRowSnapLayout(allocation,bed){
     const dominant=Object.entries(famLengths).sort((a,b)=>b[1]-a[1])[0]?.[0]||'none';
     lane.dominantFamily=dominant;
     lane.rotationWarning=familyRotationWarning(lane.prevFamily,dominant);
+    if(!lane.rotationWarning && lane.rowHotspot && (lane.rowHotspot.diseaseHits>=2 || lane.rowHotspot.obsCount>=4)){
+      lane.analyticsHint=`Historical row hotspot: ${lane.rowHint}. Planner scores this row lower for susceptible crops.`;
+    }else{
+      lane.analyticsHint=lane.rowHotspot?`Row history logs: ${lane.rowHint}.`:''; 
+    }
   });
   return {settings,rowLenFt,lanes,rowAssignments};
 }
@@ -2844,15 +2895,16 @@ function renderRowSnapMapHtml(allocation,bed){
       const left=((seg.startFt/snap.rowLenFt)*100).toFixed(2);
       const width=Math.max(1.2,(seg.lenFt/snap.rowLenFt)*100).toFixed(2);
       const short=escapeHtml(seg.cropName.split(' ').slice(0,2).join(' '));
-      return `<div class="pt-rowlane-seg${seg.tight?' tight':''}" draggable="true" data-crop="${escapeHtml(seg.cropName)}" ondragstart="handleBedMapDragStart(event)" ondragend="handleBedMapDragEnd(event)" style="left:${left}%;width:${width}%;background:${seg.color}" title="${escapeHtml(seg.cropName)} · ~${seg.lenFt.toFixed(1)} row-ft · spacing rows ${seg.betweenRowsIn}${seg.preferredRow?' · preferred row':''}\"><span>${short}${seg.preferredRow?'*':''}</span></div>`;
+      return `<div class="pt-rowlane-seg${seg.tight?' tight':''}" draggable="true" data-crop="${escapeHtml(seg.cropName)}" ondragstart="handleBedMapDragStart(event)" ondragend="handleBedMapDragEnd(event)" style="left:${left}%;width:${width}%;background:${seg.color}" title="${escapeHtml(seg.cropName)} · ~${seg.lenFt.toFixed(1)} row-ft · spacing rows ${seg.betweenRowsIn}${seg.preferredRow?' · preferred row':''}${seg.rowRiskHit?' · row hotspot history present':''}\"><span>${short}${seg.preferredRow?'*':''}</span></div>`;
     }).join('');
     return `<div>
       <div class="pt-rowlane">
-        <div class="pt-rowlane-label">${escapeHtml(lane.label)}${lane.isTrellis?` <span class="trellis">T</span>`:''}
+        <div class="pt-rowlane-label">${escapeHtml(lane.label)}${lane.isTrellis?` <span class="trellis">T</span>`:''}${lane.rowHotspot?` <span class="risk" title="Row hotspot history: ${escapeHtml(lane.rowHint||'')}">!risk</span>`:''}
           <span class="pt-rowlane-prev"><select data-bed-id="${escapeHtml(bed.id)}" data-row-index="${lane.index}" onchange="handleRowHistoryChange(this)">${Object.entries(ROTATION_FAMILY_LABELS).map(([k,label])=>`<option value="${escapeHtml(k)}"${lane.prevFamily===k?' selected':''}>${escapeHtml(label)}</option>`).join('')}</select></span>
         </div>
-        <div class="pt-rowlane-track${lane.isTrellis?' trellis':''}" data-bed-id="${escapeHtml(bed.id)}" data-row-index="${lane.index}" ondragover="handleBedMapDragOver(event)" ondragenter="handleBedMapDragEnter(event)" ondragleave="handleBedMapDragLeave(event)" ondrop="handleRowLaneDrop(event)" title="${lane.isTrellis?'Trellis-preferred row. ':''}Drop a crop here to set preferred row">${segs}</div>
+        <div class="pt-rowlane-track${lane.isTrellis?' trellis':''}" data-bed-id="${escapeHtml(bed.id)}" data-row-index="${lane.index}" ondragover="handleBedMapDragOver(event)" ondragenter="handleBedMapDragEnter(event)" ondragleave="handleBedMapDragLeave(event)" ondrop="handleRowLaneDrop(event)" title="${lane.isTrellis?'Trellis-preferred row. ':''}${lane.rowHotspot?`Historical row hotspot: ${lane.rowHint}. `:''}Drop a crop here to set preferred row">${segs}</div>
       </div>
+      ${lane.analyticsHint?`<div class="pt-rowlane-hint">${escapeHtml(lane.analyticsHint)}</div>`:''}
       ${lane.rotationWarning?`<div class="pt-rowlane-warning">${escapeHtml(lane.rotationWarning)}</div>`:''}
       ${lane.overflowFt?`<div class="pt-rowlane-overflow">Overflow: ~${lane.overflowFt.toFixed(1)} row-ft (bed too tight for row spacing / airflow at current allocation)</div>`:''}
     </div>`;
@@ -2871,6 +2923,19 @@ function collectRotationWarnings(allocation){
     });
   }
   return warnings;
+}
+function buildPlannerRowSuggestionMap(allocation){
+  const out={};
+  for(const bed of (allocation?.beds||[])){
+    const snap=buildBedRowSnapLayout(allocation,bed);
+    if(!snap) continue;
+    for(const item of (snap.rowAssignments||[])){
+      if(!item?.crop?.name || !Number.isInteger(item.suggestedRowIndex)) continue;
+      if(!out[item.crop.name]) out[item.crop.name]=[];
+      out[item.crop.name].push({bedId:bed.id,bedName:bed.name,rowIndex:item.suggestedRowIndex,rowLabel:`R${item.suggestedRowIndex+1}`,reason:item.suggestedRowReason||''});
+    }
+  }
+  return out;
 }
 function renderPlannerBedMaps(allocation){
   const host=document.getElementById('plannerBedMaps');
@@ -2969,6 +3034,7 @@ function renderPeoplePlanner(){
   }
   const allocation=allocatePlannerRows(rankedRows);
   const rows=allocation.rows;
+  const rowSuggestionMap=buildPlannerRowSuggestionMap(allocation);
   let totalSqFt=0,totalRecipePlants=0;
   const selected=getSelectedCrop();
   body.innerHTML=rows.map(({crop,plan,sc,priorityScore,allocation:alloc})=>{
@@ -3007,6 +3073,10 @@ function renderPeoplePlanner(){
         return `${a.bedName} (${a.plants})${risk.severity>=4?' !risk':''}`;
       });
       note.push(`Beds: ${bedNotes.join(', ')}`);
+    }
+    const rowSugs=(rowSuggestionMap[crop.name]||[]).filter(s=>alloc?.bedAssignments?.some(a=>a.bedId===s.bedId)).slice(0,3);
+    if(rowSugs.length){
+      note.push(`Rows: ${rowSugs.map(s=>`${s.bedName} ${s.rowLabel}${s.reason?` (${s.reason})`:''}`).join(', ')}`);
     }
     const plantsCell=alloc?.status==='partial'?`<strong>${plan.recPlants}</strong><br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedPlants}</span>`:`<strong>${plan.recPlants}</strong>`;
     const sqFtCell=alloc?.status==='partial'?`${plan.areaSqFt??'N/A'}<br><span style="color:#6b7b6b;font-size:.9em">fit ${alloc.assignedSqFt}</span>`:(plan.areaSqFt??'N/A');

@@ -115,3 +115,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] Backup schema versioning + import migration handlers added (with preview/import migration notices)
 - [x] Season Analytics dashboard MVP added (archives + observations + variety winners/watchlist + bed/row hotspots + planning suggestions)
 - [x] People Planner recommendations now use season analytics (multi-season count tuning, variety trend notes, and bed hotspot-aware placement scoring)
+- [x] Row-level placement suggestions now use row hotspot history + rotation pressure (row-snap scoring and planner row notes)
