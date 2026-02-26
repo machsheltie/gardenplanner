@@ -149,6 +149,8 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .tx-ctrls button{padding:6px 8px;border:2px solid #d4ddd4;border-radius:8px;background:#fff;font-family:inherit;font-size:.75em;cursor:pointer}
 .tx-list{display:flex;flex-direction:column;gap:6px}
 .tx-item{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start;background:#fff;border:1px solid #e0e8de;border-radius:8px;padding:7px 8px}
+.tx-item.done{opacity:.72;background:#f7faf6}
+.tx-item.snoozed{border-style:dashed}
 .tx-pri{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:20px;padding:0 6px;border-radius:999px;font-size:.66em;font-weight:700}
 .tx-pri.high{background:#fee2e2;color:#991b1b}
 .tx-pri.med{background:#fef3c7;color:#92400e}
@@ -157,6 +159,11 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 .tx-title{font-weight:700;color:#2d5a27}
 .tx-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
 .tx-meta span{font-size:.67em;background:#f3f7f1;border:1px solid #e0e8de;color:#5d6d5d;border-radius:999px;padding:2px 6px}
+.tx-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.tx-actions button{padding:3px 7px;border:1px solid #d4ddd4;border-radius:999px;background:#fff;font-size:.67em;cursor:pointer}
+.tx-actions button.done{border-color:#86efac;background:#f0fdf4;color:#166534}
+.tx-actions button.warn{border-color:#fde68a;background:#fffbeb;color:#7c5200}
+.tx-actions button.note{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
 .tx-empty{font-size:.76em;color:#6a7a69;background:#fff;border:1px dashed #dbe5d9;border-radius:8px;padding:8px}
 .pt-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
 .pt-card{background:#fff;border:2px solid #d4ddd4;border-radius:12px;padding:14px}
@@ -537,12 +544,12 @@ const DEFAULT_BEDS=[
   {id:'bed-c',name:'Bed C',lengthFt:12,widthFt:3,sun:'part',drainage:'good',layoutMode:'rows',rowSpacingIn:12,trellisSide:'south',trellisBandFt:1}
 ];
 const ASSISTANT_CONFIG_DEFAULTS={mode:'local',proxyEndpoint:'/api/master-gardener',proxyToken:'',endpoint:'',model:'gpt-4o-mini',apiKey:''};
-const BACKUP_SCHEMA_VERSION=2;
-const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},observationLogs:[],weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
+const BACKUP_SCHEMA_VERSION=3;
+const APP_STATE={selectedCropIndex:null,peopleCount:2,plannerMode:'balanced',plannerSearch:'',bedSpaceLimit:0,plannerPriorityMode:'balanced',recipeTargets:{...RECIPE_TARGET_DEFAULTS},planningYear:(new Date()).getFullYear(),beds:DEFAULT_BEDS.map(b=>({...b})),bedPlacementPrefs:{},rowHistoryPresets:{},seasonArchives:{},seasonArchiveDraft:{cropOutcomes:[]},observationLogs:[],taskTracker:{},weather:{...WEATHER_STATE_DEFAULTS},assistantConfig:{...ASSISTANT_CONFIG_DEFAULTS}};
 const STRUCT_CACHE=new Map();
 const SEASON_ANALYTICS_CACHE={key:'',value:null};
 const TASK_ENGINE_STATE={windowMode:'week',focus:'auto'};
-const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives',observationLogs:'gardenPlanner.observationLogs'};
+const LS_KEYS={assistantCfg:'gardenPlanner.masterGardenerConfig',beds:'gardenPlanner.beds',weather:'gardenPlanner.weather',bedPlacementPrefs:'gardenPlanner.bedPlacementPrefs',rowHistoryPresets:'gardenPlanner.rowHistoryPresets',planningYear:'gardenPlanner.planningYear',seasonArchives:'gardenPlanner.seasonArchives',observationLogs:'gardenPlanner.observationLogs',taskTracker:'gardenPlanner.taskTracker'};
 const RECIPE_TARGET_TO_PROFILE={salsaPints:'salsa',pickleQuarts:'pickles',pestoBatches:'pesto',curryPots:'curry'};
 const RECIPE_TARGET_LABELS={salsaPints:'salsa pints',pickleQuarts:'pickle quarts',pestoBatches:'pesto batches',curryPots:'curry pots'};
 const ROTATION_FAMILY_LABELS={
@@ -721,6 +728,7 @@ function collectBackupStateSnapshot(){
     rowHistoryPresets:cloneObj(APP_STATE.rowHistoryPresets||{}),
     seasonArchives:cloneObj(APP_STATE.seasonArchives||{}),
     observationLogs:cloneObj(APP_STATE.observationLogs||[]),
+    taskTracker:cloneObj(APP_STATE.taskTracker||{}),
     weather:cloneObj(APP_STATE.weather),
     assistantConfig:getBackupIncludeAssistantCfg()?sanitizedAssistantConfigForBackup(APP_STATE.assistantConfig):null
   };
@@ -752,7 +760,8 @@ function exportGardenBackup(){
     downloadTextFile(`gardenplanner-backup-${stamp}.json`,JSON.stringify(payload,null,2));
     const archiveCount=Object.keys(APP_STATE.seasonArchives||{}).length;
     const obsCount=(APP_STATE.observationLogs||[]).length;
-    setBackupStatus(`Backup exported (${Object.keys(APP_STATE.rowHistoryPresets||{}).length} row presets, ${archiveCount} season archives, ${obsCount} observations). AI secrets were excluded.`);
+    const taskCt=Object.keys(APP_STATE.taskTracker||{}).length;
+    setBackupStatus(`Backup exported (${Object.keys(APP_STATE.rowHistoryPresets||{}).length} row presets, ${archiveCount} season archives, ${obsCount} observations, ${taskCt} task states). AI secrets were excluded.`);
   }catch(err){
     setBackupStatus(`Backup export failed: ${err?.message||err}`);
   }
@@ -793,6 +802,11 @@ function migrateGardenBackupDataV1ToV2(data){
   }
   return d;
 }
+function migrateGardenBackupDataV2ToV3(data){
+  const d=(data&&typeof data==='object')?cloneObj(data):{};
+  if(!d.taskTracker || typeof d.taskTracker!=='object') d.taskTracker={};
+  return d;
+}
 function migrateGardenBackupPayload(payload){
   const rootIn=(payload&&typeof payload==='object')?cloneObj(payload):{};
   if(rootIn.app && rootIn.app!=='gardenplanner') throw new Error(`Unsupported backup app "${rootIn.app}"`);
@@ -812,6 +826,7 @@ function migrateGardenBackupPayload(payload){
   while(curVersion<BACKUP_SCHEMA_VERSION){
     if(curVersion===0){ data=migrateGardenBackupDataV0ToV1(data); migrationsApplied.push('0->1'); curVersion=1; continue; }
     if(curVersion===1){ data=migrateGardenBackupDataV1ToV2(data); migrationsApplied.push('1->2'); curVersion=2; continue; }
+    if(curVersion===2){ data=migrateGardenBackupDataV2ToV3(data); migrationsApplied.push('2->3'); curVersion=3; continue; }
     throw new Error(`No migration path from backup schema v${curVersion}.`);
   }
   const migratedRoot={
@@ -842,6 +857,7 @@ function applyGardenBackupPayload(payload){
   APP_STATE.seasonArchives=normalizeSeasonArchives(data.seasonArchives,APP_STATE.beds);
   APP_STATE.seasonArchiveDraft={cropOutcomes:[]};
   APP_STATE.observationLogs=normalizeObservationLogs(data.observationLogs);
+  APP_STATE.taskTracker=normalizeTaskTracker(data.taskTracker);
   APP_STATE.weather=normalizeWeatherState(data.weather||APP_STATE.weather);
   if(data.assistantConfig && typeof data.assistantConfig==='object'){
     const imported={...ASSISTANT_CONFIG_DEFAULTS,...data.assistantConfig,apiKey:'',proxyToken:''};
@@ -867,6 +883,7 @@ function applyGardenBackupPayload(payload){
     rowPresetCount:Object.keys(APP_STATE.rowHistoryPresets||{}).length,
     seasonArchiveCount:Object.keys(APP_STATE.seasonArchives||{}).length,
     observationCount:(APP_STATE.observationLogs||[]).length,
+    taskTrackerCount:Object.keys(APP_STATE.taskTracker||{}).length,
     bedCount:(APP_STATE.beds||[]).length,
     hasAssistantCfg:Boolean(data.assistantConfig)
   };
@@ -884,14 +901,15 @@ async function handleGardenBackupFileSelected(evt){
     const rowPresetCt=Object.keys((data.rowHistoryPresets&&typeof data.rowHistoryPresets==='object')?data.rowHistoryPresets:{}).length;
     const seasonArchiveCt=Object.keys((data.seasonArchives&&typeof data.seasonArchives==='object')?data.seasonArchives:{}).length;
     const observationCt=Array.isArray(data.observationLogs)?data.observationLogs.length:0;
+    const taskTrackerCt=(data.taskTracker&&typeof data.taskTracker==='object')?Object.keys(data.taskTracker).length:0;
     const bedCt=Array.isArray(data.beds)?data.beds.length:0;
     const plannerYear=data.planningYear?` Planning year: ${data.planningYear}.`:'';
     const schemaLine=`\nBackup schema: v${migratedPreview.sourceSchemaVersion||0}${migratedPreview.migrationsApplied.length?` -> v${BACKUP_SCHEMA_VERSION} (${migratedPreview.migrationsApplied.join(', ')})`:''}`;
-    const ok=confirmUiAction(`Import backup "${file.name}" (${backupName})? This will overwrite current local data.\n\nBeds: ${bedCt}\nRow-history presets: ${rowPresetCt}\nSeason archives: ${seasonArchiveCt}\nObservations: ${observationCt}.${plannerYear}${schemaLine}`);
+    const ok=confirmUiAction(`Import backup "${file.name}" (${backupName})? This will overwrite current local data.\n\nBeds: ${bedCt}\nRow-history presets: ${rowPresetCt}\nSeason archives: ${seasonArchiveCt}\nObservations: ${observationCt}\nTask states: ${taskTrackerCt}.${plannerYear}${schemaLine}`);
     if(!ok){ setBackupStatus(`Import canceled for ${file.name}.`); return; }
     const res=applyGardenBackupPayload(payload);
     const migMsg=res.migrationsApplied?.length?` Migrated backup schema v${res.sourceSchemaVersion||0} to v${BACKUP_SCHEMA_VERSION}.`:'';
-    setBackupStatus(`Imported backup from ${file.name}: ${res.bedCount} beds, ${res.rowPresetCount} row presets, ${res.seasonArchiveCount} season archives, ${res.observationCount} observations${res.hasAssistantCfg?' + AI settings (no secrets)':''}.${migMsg}`);
+    setBackupStatus(`Imported backup from ${file.name}: ${res.bedCount} beds, ${res.rowPresetCount} row presets, ${res.seasonArchiveCount} season archives, ${res.observationCount} observations, ${res.taskTrackerCount} task states${res.hasAssistantCfg?' + AI settings (no secrets)':''}.${migMsg}`);
   }catch(err){
     setBackupStatus(`Backup import failed: ${err?.message||err}`);
   }
@@ -1071,8 +1089,30 @@ function normalizeSeasonArchiveCropOutcomes(rows){
     notes:String(r?.notes||'').slice(0,220)
   })).filter(r=>r.cropName || r.variety || r.yieldAmount || r.pestIssue || r.diseaseIssue || r.notes);
 }
+function normalizeTaskTracker(map){
+  const src=(map&&typeof map==='object')?map:{};
+  const out={};
+  for(const [rawKey,val] of Object.entries(src)){
+    const key=String(rawKey||'').slice(0,180).trim();
+    if(!key || !val || typeof val!=='object') continue;
+    const snooze=/^\d{4}-\d{2}-\d{2}$/.test(String(val.snoozeUntil||''))?String(val.snoozeUntil):'';
+    const done=Boolean(val.done);
+    const note=String(val.note||'').trim().slice(0,500);
+    const updatedAt=String(val.updatedAt||val.doneAt||'').trim().slice(0,40);
+    const doneAt=String(val.doneAt||'').trim().slice(0,40);
+    if(!done && !snooze && !note) continue;
+    out[key]={done,snoozeUntil:snooze,note,updatedAt:updatedAt||new Date().toISOString(),doneAt:done?doneAt||new Date().toISOString():''};
+  }
+  return out;
+}
 function todayIsoLocal(){
   const d=new Date();
+  const off=d.getTimezoneOffset()*60000;
+  return new Date(d.getTime()-off).toISOString().slice(0,10);
+}
+function addDaysIsoLocal(days=0){
+  const d=new Date();
+  d.setDate(d.getDate()+Number(days||0));
   const off=d.getTimezoneOffset()*60000;
   return new Date(d.getTime()-off).toISOString().slice(0,10);
 }
@@ -2111,6 +2151,7 @@ function persistBedAndWeatherState(){
   safeLocalStorageSet(LS_KEYS.rowHistoryPresets,JSON.stringify(APP_STATE.rowHistoryPresets||{}));
   safeLocalStorageSet(LS_KEYS.seasonArchives,JSON.stringify(APP_STATE.seasonArchives||{}));
   safeLocalStorageSet(LS_KEYS.observationLogs,JSON.stringify(APP_STATE.observationLogs||[]));
+  safeLocalStorageSet(LS_KEYS.taskTracker,JSON.stringify(APP_STATE.taskTracker||{}));
   safeLocalStorageSet(LS_KEYS.planningYear,String(APP_STATE.planningYear||new Date().getFullYear()));
 }
 function saveBedAndWeatherState(){
@@ -2150,6 +2191,10 @@ function loadBedAndWeatherState(){
     const obsRaw=safeLocalStorageGet(LS_KEYS.observationLogs);
     APP_STATE.observationLogs=obsRaw?normalizeObservationLogs(JSON.parse(obsRaw)):[];
   }catch{ APP_STATE.observationLogs=[]; }
+  try{
+    const taskRaw=safeLocalStorageGet(LS_KEYS.taskTracker);
+    APP_STATE.taskTracker=taskRaw?normalizeTaskTracker(JSON.parse(taskRaw)):{};
+  }catch{ APP_STATE.taskTracker={}; }
   renderBedsEditor();
   renderRowHistoryPresetControls();
   renderSeasonArchiveControls();
@@ -2693,6 +2738,59 @@ function handleTaskEngineControlsChange(){
   getTaskEngineUiState();
   renderPeoplePlanner();
 }
+function getTaskTrackerEntry(key){
+  return normalizeTaskTracker({tmp:(APP_STATE.taskTracker||{})[String(key||'')]}).tmp||{done:false,snoozeUntil:'',note:'',updatedAt:'',doneAt:''};
+}
+function setTaskTrackerEntry(key,patch={}){
+  const k=String(key||'').trim().slice(0,180);
+  if(!k) return;
+  const cur=getTaskTrackerEntry(k);
+  const next=normalizeTaskTracker({[k]:{...cur,...patch,updatedAt:new Date().toISOString()}})[k];
+  const map={...(APP_STATE.taskTracker||{})};
+  if(next && (next.done || next.snoozeUntil || next.note)) map[k]=next;
+  else delete map[k];
+  APP_STATE.taskTracker=normalizeTaskTracker(map);
+  persistBedAndWeatherState();
+}
+function clearTaskTrackerEntry(key){
+  const k=String(key||'').trim();
+  if(!k) return;
+  const map={...(APP_STATE.taskTracker||{})};
+  delete map[k];
+  APP_STATE.taskTracker=normalizeTaskTracker(map);
+  persistBedAndWeatherState();
+}
+function toggleTaskDone(key){
+  const cur=getTaskTrackerEntry(key);
+  if(cur.done) setTaskTrackerEntry(key,{done:false,doneAt:''});
+  else setTaskTrackerEntry(key,{done:true,doneAt:new Date().toISOString(),snoozeUntil:''});
+  renderPeoplePlanner();
+}
+function snoozeTaskByDays(key,days){
+  const cur=getTaskTrackerEntry(key);
+  setTaskTrackerEntry(key,{done:false,snoozeUntil:addDaysIsoLocal(days||1),doneAt:cur.doneAt||''});
+  renderPeoplePlanner();
+}
+function clearTaskSnooze(key){
+  const cur=getTaskTrackerEntry(key);
+  if(cur.note && !cur.done) setTaskTrackerEntry(key,{snoozeUntil:''});
+  else if(cur.done || cur.note) setTaskTrackerEntry(key,{snoozeUntil:''});
+  else clearTaskTrackerEntry(key);
+  renderPeoplePlanner();
+}
+function clearTaskTrackerState(key){
+  clearTaskTrackerEntry(key);
+  renderPeoplePlanner();
+}
+function editTaskNote(key){
+  const cur=getTaskTrackerEntry(key);
+  const next=prompt('Task note (saved locally):', cur.note||'');
+  if(next===null) return;
+  const note=String(next||'').trim().slice(0,500);
+  if(!note && !cur.done && !cur.snoozeUntil){ clearTaskTrackerEntry(key); }
+  else setTaskTrackerEntry(key,{note});
+  renderPeoplePlanner();
+}
 function taskPriorityRank(p){ return p==='high'?3:p==='med'?2:1 }
 function addTaskItem(tasks,item){
   if(!item || !item.title) return;
@@ -2841,27 +2939,56 @@ function renderTaskEngineList(rankedRows=[],allocation=null){
   syncTaskEngineControlsToUi();
   const host=document.getElementById('taskEngineList');
   if(!host) return;
-  const tasks=generateTaskEngineItems(rankedRows,allocation);
+  const today=todayIsoLocal();
+  const tasks=generateTaskEngineItems(rankedRows,allocation).map(t=>({...t,_state:getTaskTrackerEntry(t.key)}));
+  const visible=tasks.filter(t=>!(t._state.snoozeUntil && t._state.snoozeUntil>today) || t._state.done);
+  const hiddenSnoozed=tasks.filter(t=>t._state.snoozeUntil && t._state.snoozeUntil>today && !t._state.done);
   if(!tasks.length){
     host.innerHTML='<div class="tx-empty">No tasks generated for the current filters. Try switching task focus to “All crops” or adjusting planner filters.</div>';
     return;
   }
-  host.innerHTML=tasks.map(t=>{
+  if(!visible.length){
+    host.innerHTML=`<div class="tx-empty">All current tasks are snoozed or completed.${hiddenSnoozed.length?` ${hiddenSnoozed.length} snoozed task${hiddenSnoozed.length===1?'':'s'} hidden until later.`:''}</div>`;
+    return;
+  }
+  const summaryBits=[];
+  const doneCt=tasks.filter(t=>t._state.done).length;
+  if(doneCt) summaryBits.push(`${doneCt} done`);
+  if(hiddenSnoozed.length) summaryBits.push(`${hiddenSnoozed.length} snoozed`);
+  const summaryHtml=summaryBits.length?`<div class="tx-empty" style="padding:6px 8px">${summaryBits.join(' · ')} (hidden items remain saved locally).</div>`:'';
+  host.innerHTML=summaryHtml+visible.map(t=>{
+    const st=t._state||{};
     const priLabel=t.priority==='high'?'HIGH':t.priority==='med'?'MED':'LOW';
-    const meta=[t.source,t.crop,t.location,t.when].filter(Boolean).map(x=>`<span>${escapeHtml(String(x))}</span>`).join('');
-    return `<div class="tx-item"><div class="tx-pri ${t.priority}">${priLabel}</div><div class="tx-body"><div class="tx-title">${escapeHtml(t.title)}</div><div>${escapeHtml(t.detail)}</div>${meta?`<div class="tx-meta">${meta}</div>`:''}</div></div>`;
+    const meta=[t.source,t.crop,t.location,t.when,st.snoozeUntil?`snoozed to ${st.snoozeUntil}`:'',st.done?'done':''].filter(Boolean).map(x=>`<span>${escapeHtml(String(x))}</span>`).join('');
+    const noteHtml=st.note?`<div style="margin-top:4px;color:#355335"><strong>Note:</strong> ${escapeHtml(st.note)}</div>`:'';
+    const actions=`<div class="tx-actions">
+      <button type="button" class="done" onclick="toggleTaskDone(${JSON.stringify(t.key).replace(/"/g,'&quot;')})">${st.done?'Undo':'Done'}</button>
+      <button type="button" class="warn" onclick="snoozeTaskByDays(${JSON.stringify(t.key).replace(/"/g,'&quot;')},1)">+1d</button>
+      <button type="button" class="warn" onclick="snoozeTaskByDays(${JSON.stringify(t.key).replace(/"/g,'&quot;')},7)">+1w</button>
+      <button type="button" class="note" onclick="editTaskNote(${JSON.stringify(t.key).replace(/"/g,'&quot;')})">${st.note?'Edit Note':'Add Note'}</button>
+      ${st.snoozeUntil?`<button type="button" onclick="clearTaskSnooze(${JSON.stringify(t.key).replace(/"/g,'&quot;')})">Clear Snooze</button>`:''}
+      ${(st.note||st.done)?`<button type="button" onclick="clearTaskTrackerState(${JSON.stringify(t.key).replace(/"/g,'&quot;')})">Reset</button>`:''}
+    </div>`;
+    return `<div class="tx-item${st.done?' done':''}${st.snoozeUntil&&st.snoozeUntil>today?' snoozed':''}"><div class="tx-pri ${t.priority}">${priLabel}</div><div class="tx-body"><div class="tx-title">${escapeHtml(t.title)}</div><div>${escapeHtml(t.detail)}</div>${noteHtml}${meta?`<div class="tx-meta">${meta}</div>`:''}${actions}</div></div>`;
   }).join('');
 }
 function getTaskEngineSummaries(limit=8){
   const ranked=getPlannerRows({ignoreSearch:true});
   const alloc=allocatePlannerRows(ranked);
-  return generateTaskEngineItems(ranked,alloc).slice(0,Math.max(0,limit|0)).map(t=>({
+  const today=todayIsoLocal();
+  return generateTaskEngineItems(ranked,alloc)
+    .map(t=>({...t,_state:getTaskTrackerEntry(t.key)}))
+    .filter(t=>!(t._state.snoozeUntil && t._state.snoozeUntil>today) || t._state.done)
+    .slice(0,Math.max(0,limit|0)).map(t=>({
     priority:t.priority,
     title:t.title,
     crop:t.crop||'',
     location:t.location||'',
     source:t.source,
-    when:t.when
+    when:t.when,
+    done:Boolean(t._state?.done),
+    snoozeUntil:t._state?.snoozeUntil||'',
+    note:Boolean(t._state?.note)
   }));
 }
 function estimateCropPlan(crop,people=APP_STATE.peopleCount,mode=APP_STATE.plannerMode){

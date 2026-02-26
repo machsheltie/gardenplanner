@@ -117,3 +117,4 @@ The current planner is rich in expert notes and variety choices, but most knowle
 - [x] People Planner recommendations now use season analytics (multi-season count tuning, variety trend notes, and bed hotspot-aware placement scoring)
 - [x] Row-level placement suggestions now use row hotspot history + rotation pressure (row-snap scoring and planner row notes)
 - [x] Task Engine MVP added (Today/This Week/This Month tasks from planting windows, weather/clay alerts, observations, analytics hotspots, and planner space conflicts)
+- [x] Task Engine workflow state added (complete/snooze/notes persisted locally and included in backups)
