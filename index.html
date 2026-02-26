@@ -352,6 +352,8 @@ tbody td:nth-child(2){text-align:left;font-size:.82em;color:#6b7b6b}
 <div class="pt-mini-ctrls">
 <label>Date <input id="obsDate" type="date"></label>
 <label>Crop <select id="obsCrop"></select></label>
+<label>Bed <select id="obsBed" onchange="handleObservationBedChange()"></select></label>
+<label>Row <select id="obsRow"></select></label>
 <label>Symptom / Issue <input id="obsSymptom" type="text" maxlength="140" placeholder="yellow leaf spots, chewing, wilt..."></label>
 <label>Photo Ref <input id="obsPhotoRef" type="text" maxlength="220" placeholder="file name, path, or URL"></label>
 </div>
@@ -1069,16 +1071,25 @@ function todayIsoLocal(){
 function normalizeObservationLogs(logs){
   const arr=Array.isArray(logs)?logs:[];
   const validCropNames=new Set(V.map(v=>v.name));
+  const beds=getActiveBeds();
+  const bedIds=new Set(beds.map(b=>b.id));
+  const bedNameById=new Map(beds.map(b=>[b.id,b.name]));
   const rows=arr.map(r=>({
     id:String(r?.id||uid('obs')).slice(0,48),
     date:/^\d{4}-\d{2}-\d{2}$/.test(String(r?.date||''))?String(r.date):todayIsoLocal(),
     cropName:validCropNames.has(String(r?.cropName||''))?String(r.cropName):'',
+    bedId:bedIds.has(String(r?.bedId||''))?String(r.bedId):'',
+    bedName:String(r?.bedName||'').trim().slice(0,40),
+    rowIndex:Number.isInteger(Number(r?.rowIndex))?Math.max(0,Math.trunc(Number(r.rowIndex))):null,
     symptom:String(r?.symptom||'').trim().slice(0,140),
     notes:String(r?.notes||'').trim().slice(0,1200),
     photoRef:String(r?.photoRef||'').trim().slice(0,220),
     createdAt:String(r?.createdAt||r?.date||todayIsoLocal()),
     updatedAt:String(r?.updatedAt||r?.createdAt||r?.date||todayIsoLocal())
-  })).filter(r=>r.cropName || r.symptom || r.notes || r.photoRef);
+  })).map(r=>{
+    const liveBedName=r.bedId?bedNameById.get(r.bedId)||'':'';
+    return {...r,bedName:(liveBedName||r.bedName||'').slice(0,40)};
+  }).filter(r=>r.cropName || r.symptom || r.notes || r.photoRef || r.bedId || r.bedName);
   const seen=new Set();
   return rows
     .filter(r=>{ if(seen.has(r.id)) return false; seen.add(r.id); return true; })
@@ -1093,6 +1104,40 @@ function getRecentObservationLogs(limit=20,cropName=''){
   const filterName=String(cropName||'');
   return (filterName?rows.filter(r=>r.cropName===filterName):rows).slice(0,Math.max(0,limit|0));
 }
+function populateObservationBedSelect(selected=''){
+  const sel=document.getElementById('obsBed');
+  if(!sel) return;
+  const beds=getActiveBeds();
+  const current=selected || sel.value || '';
+  sel.innerHTML=`<option value="">(optional)</option>`+beds.map(b=>`<option value="${escapeHtml(b.id)}"${b.id===current?' selected':''}>${escapeHtml(b.name)}</option>`).join('');
+  if(current && !beds.some(b=>b.id===current)) sel.value='';
+}
+function populateObservationRowSelect(bedId='',selected=''){
+  const sel=document.getElementById('obsRow');
+  if(!sel) return;
+  const bed=bedId?getBedById(bedId):null;
+  if(!bed){
+    sel.innerHTML='<option value="">(optional)</option>';
+    sel.value='';
+    return;
+  }
+  const rowCount=getBedRowSettings(bed).rowCount;
+  const current=String(selected??sel.value??'');
+  sel.innerHTML=`<option value="">(optional)</option>`+Array.from({length:rowCount},(_,i)=>`<option value="${i}"${String(i)===current?' selected':''}>R${i+1}</option>`).join('');
+  if(current && !Array.from({length:rowCount},(_,i)=>String(i)).includes(current)) sel.value='';
+}
+function handleObservationBedChange(){
+  const bedId=String(document.getElementById('obsBed')?.value||'');
+  populateObservationRowSelect(bedId,'');
+}
+function formatObservationBedRowLabel(row){
+  const bedName=String(row?.bedName||'').trim();
+  const rowIdx=Number.isInteger(Number(row?.rowIndex))?Math.trunc(Number(row.rowIndex)):null;
+  if(!bedName && rowIdx==null) return '';
+  if(!bedName) return `R${rowIdx+1}`;
+  if(rowIdx==null) return bedName;
+  return `${bedName} / R${rowIdx+1}`;
+}
 function populateObservationCropSelect(selected=''){
   const sel=document.getElementById('obsCrop');
   if(!sel) return;
@@ -1101,9 +1146,16 @@ function populateObservationCropSelect(selected=''){
   if(current && !V.some(v=>v.name===current)) sel.value='';
 }
 function observationFormDataFromUi(){
+  const bedId=String(document.getElementById('obsBed')?.value||'');
+  const bed=bedId?getBedById(bedId):null;
+  const rowRaw=document.getElementById('obsRow')?.value;
+  const rowIndex=(rowRaw!=='' && Number.isInteger(Number(rowRaw)))?Math.max(0,Math.trunc(Number(rowRaw))):null;
   return {
     date:String(document.getElementById('obsDate')?.value||todayIsoLocal()),
     cropName:String(document.getElementById('obsCrop')?.value||''),
+    bedId:bed?.id||'',
+    bedName:bed?.name||'',
+    rowIndex,
     symptom:String(document.getElementById('obsSymptom')?.value||'').trim(),
     photoRef:String(document.getElementById('obsPhotoRef')?.value||'').trim(),
     notes:String(document.getElementById('obsNotes')?.value||'').trim()
@@ -1114,6 +1166,8 @@ function clearObservationLogForm(keepCrop=false){
   const dateEl=document.getElementById('obsDate');
   if(dateEl) dateEl.value=todayIsoLocal();
   populateObservationCropSelect(cropVal);
+  populateObservationBedSelect('');
+  populateObservationRowSelect('','');
   if(!keepCrop && document.getElementById('obsCrop')) document.getElementById('obsCrop').value='';
   const ids=['obsSymptom','obsPhotoRef','obsNotes'];
   ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
@@ -1123,7 +1177,10 @@ function prefillObservationFromSelectedCrop(){
   populateObservationCropSelect(crop?.name||'');
   const dateEl=document.getElementById('obsDate');
   if(dateEl && !dateEl.value) dateEl.value=todayIsoLocal();
-  setObservationLogStatus(crop?`Observation form prefilled with selected crop: ${crop.name}.`:'No crop selected in “Varieties & Tips”; choose a crop from the dropdown.');
+  const pref=crop?getPlacementPref(crop.name):null;
+  populateObservationBedSelect(pref?.bedId||'');
+  populateObservationRowSelect(pref?.bedId||'', Number.isInteger(pref?.rowIndex)?String(pref.rowIndex):'');
+  setObservationLogStatus(crop?`Observation form prefilled with selected crop: ${crop.name}${pref?.bedId?` (${formatObservationBedRowLabel({bedName:getBedById(pref.bedId)?.name||'',rowIndex:pref.rowIndex})})`:''}.`:'No crop selected in “Varieties & Tips”; choose a crop from the dropdown.');
 }
 function saveObservationLogEntry(){
   populateObservationCropSelect();
@@ -1136,7 +1193,8 @@ function saveObservationLogEntry(){
   renderSelectedStructuredPanel();
   renderAssistantPanel();
   clearObservationLogForm(true);
-  setObservationLogStatus(`Saved observation for ${row.cropName}${row.symptom?` (${row.symptom})`:''}.`);
+  const bedTag=formatObservationBedRowLabel(row);
+  setObservationLogStatus(`Saved observation for ${row.cropName}${bedTag?` @ ${bedTag}`:''}${row.symptom?` (${row.symptom})`:''}.`);
 }
 function deleteObservationLogEntry(id){
   const row=(APP_STATE.observationLogs||[]).find(r=>r.id===id);
@@ -1172,6 +1230,9 @@ function renderObservationLogPanel(){
   const dateEl=document.getElementById('obsDate');
   if(dateEl && !dateEl.value) dateEl.value=todayIsoLocal();
   populateObservationCropSelect(document.getElementById('obsCrop')?.value||'');
+  const bedSelVal=String(document.getElementById('obsBed')?.value||'');
+  populateObservationBedSelect(bedSelVal);
+  populateObservationRowSelect(String(document.getElementById('obsBed')?.value||''), String(document.getElementById('obsRow')?.value||''));
   if(!listEl) return;
   const rows=getRecentObservationLogs(8);
   const selectedCrop=getSelectedCrop()?.name||'';
@@ -1183,8 +1244,10 @@ function renderObservationLogPanel(){
     const sym=r.symptom?`<div>Symptom: ${escapeHtml(r.symptom)}</div>`:'';
     const notes=r.notes?`<div>Notes: ${escapeHtml(r.notes)}</div>`:'';
     const photo=r.photoRef?`<div>Photo: <code>${escapeHtml(r.photoRef)}</code></div>`:'';
+    const loc=formatObservationBedRowLabel(r);
+    const locHtml=loc?`<div>Location: <strong>${escapeHtml(loc)}</strong></div>`:'';
     const selectedTag=(selectedCrop && r.cropName===selectedCrop)?' · selected crop':'';
-    return `<div class="obx-item"><div class="obx-head"><div><b>${escapeHtml(r.cropName||'Unknown crop')}</b><div class="obx-meta">${escapeHtml(r.date)}${selectedTag}</div></div><div class="obx-actions"><button type="button" onclick="useObservationForSymptomLookup('${escapeHtml(r.id)}')">Lookup</button><button type="button" class="danger" onclick="deleteObservationLogEntry('${escapeHtml(r.id)}')">Delete</button></div></div><div class="obx-body">${sym}${notes}${photo}</div></div>`;
+    return `<div class="obx-item"><div class="obx-head"><div><b>${escapeHtml(r.cropName||'Unknown crop')}</b><div class="obx-meta">${escapeHtml(r.date)}${selectedTag}</div></div><div class="obx-actions"><button type="button" onclick="useObservationForSymptomLookup('${escapeHtml(r.id)}')">Lookup</button><button type="button" class="danger" onclick="deleteObservationLogEntry('${escapeHtml(r.id)}')">Delete</button></div></div><div class="obx-body">${locHtml}${sym}${notes}${photo}</div></div>`;
   }).join('');
 }
 function currentRowHistorySnapshot(){
@@ -1460,6 +1523,7 @@ function getObservationSummaries(limit=8,cropName=''){
     id:r.id,
     date:r.date,
     cropName:r.cropName,
+    bedLabel:formatObservationBedRowLabel(r),
     symptom:r.symptom,
     notesPreview:(r.notes||'').slice(0,180),
     photoRef:r.photoRef
@@ -2591,7 +2655,8 @@ function buildStructuredPanelHtml(crop){
   const weather=weatherRiskFlags(crop);
   const weatherBox=weather.messages.length?`<div class="tdx-item"><b>Weather / Clay Alert</b>${escapeHtml(weather.messages[0])}</div>`:'';
   const latestObs=getRecentObservationLogs(1,crop.name)[0]||null;
-  const obsBox=latestObs?`<div class="tdx-item"><b>Latest Observation</b>${escapeHtml(latestObs.date)}${latestObs.symptom?` · ${escapeHtml(latestObs.symptom)}`:''}${latestObs.photoRef?`<br><span style="color:#6b7b6b">Photo: ${escapeHtml(latestObs.photoRef)}</span>`:''}</div>`:'';
+  const obsLoc=latestObs?formatObservationBedRowLabel(latestObs):'';
+  const obsBox=latestObs?`<div class="tdx-item"><b>Latest Observation</b>${escapeHtml(latestObs.date)}${obsLoc?` · ${escapeHtml(obsLoc)}`:''}${latestObs.symptom?` · ${escapeHtml(latestObs.symptom)}`:''}${latestObs.photoRef?`<br><span style="color:#6b7b6b">Photo: ${escapeHtml(latestObs.photoRef)}</span>`:''}</div>`:'';
   const plannerBox=plan?`<div class="tdx-item"><b>People Planner (${APP_STATE.peopleCount}, ${APP_STATE.plannerMode})</b>${plan.recPlants} plants (~${plan.areaSqFt??'N/A'} sq ft)<br><span style="color:#6b7b6b">Range ${plan.minPlants}-${plan.maxPlants}${plan.recipeBoost?.plantsRounded?` · Recipe +${plan.recipeBoost.plantsRounded}`:''}</span></div>`:'';
   const symptomChips=getSymptomLookupChips(sc,10);
   const symptomLookup=(sc.ipm?.issueRecords||[]).length?`<div class="symx"><div class="symx-head">Symptom Lookup (MVP)</div><div class="symx-row"><input id="symptomLookupInput" type="text" placeholder="Describe what you see (e.g., yellow spots lower leaves)" onkeydown="if(event.key==='Enter'){runSymptomLookup()}"><button type="button" onclick="runSymptomLookup()">Analyze</button><button type="button" onclick="runSymptomLookup('')">Top Issues</button></div>${symptomChips.length?`<div class="symx-chips">${symptomChips.map(s=>`<button type="button" onclick="useSymptomLookupChip(${JSON.stringify(s).replace(/"/g,'&quot;')})">${escapeHtml(s)}</button>`).join('')}</div>`:''}<div id="symptomLookupResult" class="symx-result">${buildSymptomLookupResultHtml(crop,'')}</div></div>`:'';
@@ -2774,7 +2839,7 @@ function answerMasterGardener(question){
   }
   if(!crop && /\bobservation|observed|log|photo|symptom note\b/.test(q)){
     if(!recentObs.length) return `No observation logs yet. Use the Observation Log section in the Planner/Beds panel to save date + crop + symptom + notes + photo reference entries.`;
-    return `Recent observations: ${recentObs.map(o=>`${o.date} ${o.cropName}${o.symptom?` (${o.symptom})`:''}${o.photoRef?` [photo: ${o.photoRef}]`:''}`).join(' | ')}. Select a crop for crop-specific troubleshooting and symptom lookup.`;
+    return `Recent observations: ${recentObs.map(o=>`${o.date} ${o.cropName}${o.bedLabel?` @ ${o.bedLabel}`:''}${o.symptom?` (${o.symptom})`:''}${o.photoRef?` [photo: ${o.photoRef}]`:''}`).join(' | ')}. Select a crop for crop-specific troubleshooting and symptom lookup.`;
   }
   if(!crop){
     return `Select a crop in the “Varieties & Tips” tab first, then ask again. I can answer timing, spacing, pests, clay-soil notes, and household plant counts using your planner data.`;
@@ -2816,7 +2881,7 @@ function answerMasterGardener(question){
     const cropObs=getObservationSummaries(5,crop.name);
     if(!cropObs.length) return `No observation logs are saved for ${crop.name} yet. Use the Observation Log section to record dates, symptoms, notes, and photo refs, then I can use them in troubleshooting.`;
     const latest=cropObs[0];
-    return `Recent observations for ${crop.name}: ${cropObs.map(o=>`${o.date}${o.symptom?` · ${o.symptom}`:''}${o.photoRef?` · photo ${o.photoRef}`:''}`).join(' | ')}. Latest note preview: ${latest.notesPreview||'no notes'}. You can click “Lookup” on an observation to open symptom lookup for that crop.`;
+    return `Recent observations for ${crop.name}: ${cropObs.map(o=>`${o.date}${o.bedLabel?` · ${o.bedLabel}`:''}${o.symptom?` · ${o.symptom}`:''}${o.photoRef?` · photo ${o.photoRef}`:''}`).join(' | ')}. Latest note preview: ${latest.notesPreview||'no notes'}. You can click “Lookup” on an observation to open symptom lookup for that crop.`;
   }
   if(/\bweather|rain|humid|humidity|mildew risk|can i work|soil too wet\b/.test(q)){
     const wx=normalizeWeatherState(APP_STATE.weather);
